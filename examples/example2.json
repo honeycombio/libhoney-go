@@ -1,0 +1,5 @@
+{"timestamp":"2016-05-12T20:00:03-08:00","ingredient":"eggplant","amount":"1 large", "step":1}
+{"timestamp":"2016-05-12T20:13:03-08:00","ingredient":"green beans","amount":"2 cups", "step":2, "extra_instructions": "remove ends, snap in half."}
+{"timestamp":"2016-05-12T20:12:03-08:00","ingredient":"garlic","amount":"1/2 head", "step":3}
+{"malformed"-"json" example of what happens when coming across malformed json
+{"timestamp":"2016-05-12T20:10:00-08:00","ingredient":"spices","amount":"generous", "step":5}

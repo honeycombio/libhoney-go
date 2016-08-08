@@ -1,0 +1,5 @@
+{"timestamp":"2016-05-12T19:00:03-08:00","ingredient":"bacon","amount":"5 strips", "step":1, "extra_instructions":"cook first, then set aside"}
+{"timestamp":"2016-05-12T19:13:03-08:00","ingredient":"onions","amount":"1 small", "step":2}
+{"timestamp":"2016-05-12T19:12:03-08:00","ingredient":"garlic","amount":"2 cloves", "step":3}
+{"timestamp":"Monday at 12:30pm", "ingredient":"bell pepper","amount":"1/2", "step":4, "comment":"broken time field; this event will be sent with the current time."}
+{"ingredient":"eggs","amount":"3", "step":5, "comment":"missing time field; this event will be sent with the current time."}
