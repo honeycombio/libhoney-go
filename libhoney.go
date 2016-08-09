@@ -157,6 +157,8 @@ func init() {
 // specified later, either on a builder or an event. WriteKey, Dataset,
 // SampleRate, and APIHost can all be overridden on a per-builder or per-event
 // basis.
+//
+// Make sure to call Close() to flush transmisison buffers.
 func Init(config Config) error {
 	// Default sample rate should be 1. 0 is invalid.
 	if config.SampleRate == 0 {
@@ -196,7 +198,7 @@ func Init(config Config) error {
 }
 
 // Close waits for all in-flight messages to be sent. You should
-// call Close() before app termination
+// call Close() before app termination.
 func Close() {
 	tx.Stop()
 	close(responses)

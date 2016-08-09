@@ -584,15 +584,15 @@ func Example() {
 		Dataset:    "Example Service",
 		SampleRate: 1,
 	})
+	// when all done, call close
+	defer Close()
+
 	// create an event, add fields
 	ev := NewEvent()
 	ev.AddField("duration_ms", 153.12)
 	ev.AddField("method", "get")
 	// send the event
 	ev.Send()
-
-	// when all done, call close
-	Close()
 }
 
 func ExampleAddDynamicField() {
