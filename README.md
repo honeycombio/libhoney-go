@@ -1,6 +1,8 @@
 A Go library for sending data to Honeycomb (http://honeycomb.io)
 ========================================================
 
+[![Build Status](https://travis-ci.org/honeycombio/libhoney-go.svg?branch=master)](https://travis-ci.org/honeycombio/libhoney-go)
+
 ## Summary
 
 libhoney is written to ease the process of sending data to Honeycomb from within
