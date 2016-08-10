@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/honeycombio/libhoney-go-private"
+	"github.com/honeycombio/libhoney-go"
 )
 
 // This example reads JSON blobs from a file and sends them as Honeycomb events.
