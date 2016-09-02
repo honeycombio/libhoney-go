@@ -23,17 +23,6 @@ import (
 	"github.com/facebookgo/muster"
 )
 
-const (
-	// defaultmaxBatchSize how many events to collect in a batch
-	defaultmaxBatchSize = 50
-	// defaultbatchTimeout how frequently to send unfilled batches
-	defaultbatchTimeout = 100 * time.Millisecond
-	// defaultmaxConcurrentBatches how many batches to maintain in parallel
-	defaultmaxConcurrentBatches = 10
-	// defaultpendingWorkCapacity how many events to queue up for busy batches
-	defaultpendingWorkCapacity = 10000
-)
-
 type txClient interface {
 	Start() error
 	Stop() error
@@ -52,21 +41,9 @@ type txDefaultClient struct {
 }
 
 func (t *txDefaultClient) Start() error {
-	if t.maxBatchSize == 0 {
-		t.maxBatchSize = defaultmaxBatchSize
-	}
 	t.muster.MaxBatchSize = t.maxBatchSize
-	if t.batchTimeout == 0 {
-		t.batchTimeout = defaultbatchTimeout
-	}
 	t.muster.BatchTimeout = t.batchTimeout
-	if t.maxConcurrentBatches == 0 {
-		t.maxConcurrentBatches = defaultmaxConcurrentBatches
-	}
 	t.muster.MaxConcurrentBatches = t.maxConcurrentBatches
-	if t.pendingWorkCapacity == 0 {
-		t.pendingWorkCapacity = defaultpendingWorkCapacity
-	}
 	t.muster.PendingWorkCapacity = t.pendingWorkCapacity
 	t.muster.BatchMaker = func() muster.Batch {
 		return &batch{
