@@ -21,6 +21,15 @@ const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
 	version           = "1.1.0"
+
+	// defaultmaxBatchSize how many events to collect in a batch
+	defaultmaxBatchSize = 50
+	// defaultbatchTimeout how frequently to send unfilled batches
+	defaultbatchTimeout = 100 * time.Millisecond
+	// defaultmaxConcurrentBatches how many batches to maintain in parallel
+	defaultmaxConcurrentBatches = 10
+	// defaultpendingWorkCapacity how many events to queue up for busy batches
+	defaultpendingWorkCapacity = 10000
 )
 
 var (
@@ -167,6 +176,18 @@ func Init(config Config) error {
 	if config.APIHost == "" {
 		config.APIHost = defaultAPIHost
 	}
+	if config.MaxBatchSize == 0 {
+		config.MaxBatchSize = defaultmaxBatchSize
+	}
+	if config.SendFrequency == 0 {
+		config.SendFrequency = defaultbatchTimeout
+	}
+	if config.MaxConcurrentBatches == 0 {
+		config.MaxConcurrentBatches = defaultmaxConcurrentBatches
+	}
+	if config.PendingWorkCapacity == 0 {
+		config.PendingWorkCapacity = defaultpendingWorkCapacity
+	}
 
 	sd, _ = statsd.New(statsd.Prefix("libhoney"))
 
@@ -179,6 +200,7 @@ func Init(config Config) error {
 		maxConcurrentBatches: config.MaxConcurrentBatches,
 		pendingWorkCapacity:  config.PendingWorkCapacity,
 		blockOnSend:          config.BlockOnSend,
+		blockOnResponses:     config.BlockOnResponse,
 	}
 
 	if err := tx.Start(); err != nil {

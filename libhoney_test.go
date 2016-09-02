@@ -28,6 +28,7 @@ func TestLibhoney(t *testing.T) {
 	}
 	err := Init(conf)
 	testOK(t, err)
+	testEquals(t, cap(responses), 2*defaultpendingWorkCapacity)
 }
 
 func TestNewEvent(t *testing.T) {
