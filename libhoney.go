@@ -20,7 +20,7 @@ import (
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
-	version           = "1.1.0"
+	version           = "1.1.1"
 
 	// defaultmaxBatchSize how many events to collect in a batch
 	defaultmaxBatchSize = 50
@@ -38,7 +38,7 @@ var (
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
-// The default User-Agent is "libhoney-go/1.1.0". If you set this variable, its
+// The default User-Agent is "libhoney-go/1.1.1". If you set this variable, its
 // contents will be appended to the User-Agent string, separated by a space. The
 // expected format is product-name/version, eg "myapp/1.0"
 var UserAgentAddition string
