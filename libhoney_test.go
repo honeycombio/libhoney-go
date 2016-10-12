@@ -14,7 +14,7 @@ import (
 // tests interact with the same variables in a way that is not like how it
 // would be used. This function resets things to a blank state.
 func resetPackageVars() {
-	globalState = &Builder{}
+	defaultBuilder = &Builder{}
 	sd, _ = statsd.New(statsd.Mute(true))
 }
 
@@ -411,7 +411,7 @@ func TestBuilderDynFields(t *testing.T) {
 	AddDynamicField("ints", myIntFn)
 	b := NewBuilder()
 	b.AddDynamicField("strs", myStrFn)
-	testEquals(t, len(globalState.dynFields), 1)
+	testEquals(t, len(defaultBuilder.dynFields), 1)
 	testEquals(t, len(b.dynFields), 2)
 
 	ev1 := NewEvent()

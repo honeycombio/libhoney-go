@@ -32,9 +32,35 @@ const (
 	defaultpendingWorkCapacity = 10000
 )
 
+// for validation
 var (
 	ptrKinds = []reflect.Kind{reflect.Ptr, reflect.Slice, reflect.Map}
 )
+
+// globals for singleton-like behavior
+var (
+	blockOnResponses          = false
+	tx               txClient = &txDefaultClient{
+		maxBatchSize:         defaultmaxBatchSize,
+		batchTimeout:         defaultbatchTimeout,
+		maxConcurrentBatches: defaultmaxConcurrentBatches,
+		pendingWorkCapacity:  defaultpendingWorkCapacity,
+	}
+	sd, _          = statsd.New(statsd.Mute(true)) // init working default, to be overridden
+	responses      = make(chan Response, 2*defaultpendingWorkCapacity)
+	defaultBuilder = &Builder{
+		APIHost:    defaultAPIHost,
+		SampleRate: defaultSampleRate,
+		dynFields:  make([]dynamicField, 0, 0),
+		fieldHolder: fieldHolder{
+			data: make(map[string]interface{}),
+		},
+	}
+)
+
+func init() {
+	tx.Start()
+}
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
@@ -87,7 +113,6 @@ type Config struct {
 	SendFrequency        time.Duration // how often to send off batches
 	MaxConcurrentBatches uint          // how many batches can be inflight simultaneously
 	PendingWorkCapacity  uint          // how many events to allow to pile up
-
 }
 
 type Event struct {
@@ -134,40 +159,21 @@ type fieldHolder struct {
 	lock sync.Mutex
 }
 
-// globals for singleton-like behavior
-var (
-	tx               txClient
-	responses        chan Response
-	blockOnResponses bool
-	sd               *statsd.Client
-	globalState      *Builder
-)
-
 type dynamicField struct {
 	name string
 	fn   func() interface{}
 }
 
-// initialize a default config to protect ourselves against using unitialized
-// values if someone forgets to run Init(). It's fine if things don't work
-// without running Init; it's not fine if they panic.
-func init() {
-	// initialize global statsd client as mute to provide a working default
-	sd, _ = statsd.New(statsd.Mute(true))
-	globalState = &Builder{
-		SampleRate: 1,
-		dynFields:  make([]dynamicField, 0, 0),
-	}
-	globalState.data = make(map[string]interface{})
-}
-
-// Init must be called once on app initialization. All fields in the Config
-// struct are optional. If WriteKey and DataSet are absent, they must be
-// specified later, either on a builder or an event. WriteKey, Dataset,
-// SampleRate, and APIHost can all be overridden on a per-builder or per-event
-// basis.
+// To configure default behavior, Init should be called on app initialization
+// and passed a Config struct. Use of package-level functions (e.g. SendNow())
+// require that WriteKey and Dataset are defined.
 //
-// Make sure to call Close() to flush transmisison buffers.
+// Otherwise, if WriteKey and DataSet are absent or a Config is not provided,
+// they may be specified later, either on a Builder or an Event. WriteKey,
+// Dataset, SampleRate, and APIHost can all be overridden on a per-Builder or
+// per-Event basis.
+//
+// Make sure to call Close() to flush buffers.
 func Init(config Config) error {
 	// Default sample rate should be 1. 0 is invalid.
 	if config.SampleRate == 0 {
@@ -189,11 +195,10 @@ func Init(config Config) error {
 		config.PendingWorkCapacity = defaultpendingWorkCapacity
 	}
 
-	sd, _ = statsd.New(statsd.Prefix("libhoney"))
+	blockOnResponses = config.BlockOnResponse
 
-	responses = make(chan Response, config.PendingWorkCapacity*2)
-
-	// spin up the global transmission
+	// reset the global transmission
+	tx.Stop()
 	tx = &txDefaultClient{
 		maxBatchSize:         config.MaxBatchSize,
 		batchTimeout:         config.SendFrequency,
@@ -207,14 +212,19 @@ func Init(config Config) error {
 		return err
 	}
 
-	globalState = &Builder{
+	sd, _ = statsd.New(statsd.Prefix("libhoney"))
+	responses = make(chan Response, config.PendingWorkCapacity*2)
+
+	defaultBuilder = &Builder{
 		WriteKey:   config.WriteKey,
 		Dataset:    config.Dataset,
 		SampleRate: config.SampleRate,
 		APIHost:    config.APIHost,
 		dynFields:  make([]dynamicField, 0, 0),
+		fieldHolder: fieldHolder{
+			data: make(map[string]interface{}),
+		},
 	}
-	globalState.data = make(map[string]interface{})
 
 	return nil
 }
@@ -249,26 +259,26 @@ func Responses() chan Response {
 // created and added as a field (with name as the key) to the newly created
 // event.
 func AddDynamicField(name string, fn func() interface{}) error {
-	return globalState.AddDynamicField(name, fn)
+	return defaultBuilder.AddDynamicField(name, fn)
 }
 
 // AddField adds a Field to the global scope. This metric will be inherited by
 // all builders and events.
 func AddField(name string, val interface{}) {
-	globalState.AddField(name, val)
+	defaultBuilder.AddField(name, val)
 }
 
 // Add adds its data to the global scope. It adds all fields in a struct or all
 // keys in a map as individual Fields. These metrics will be inherited by all
 // builders and events.
 func Add(data interface{}) error {
-	return globalState.Add(data)
+	return defaultBuilder.Add(data)
 }
 
 // Creates a new event prepopulated with any Fields present in the global
 // scope.
 func NewEvent() *Event {
-	return globalState.NewEvent()
+	return defaultBuilder.NewEvent()
 }
 
 // AddField adds an individual metric to the event or builder on which it is
@@ -475,7 +485,7 @@ func isFirstLower(s string) bool {
 // NewBuilder creates a new event builder. The builder inherits any
 // Dynamic or Static Fields present in the global scope.
 func NewBuilder() *Builder {
-	return globalState.Clone()
+	return defaultBuilder.Clone()
 }
 
 // AddDynamicField adds a dynamic field to the builder. Any events

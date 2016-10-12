@@ -2,6 +2,7 @@ package libhoney
 
 import (
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -35,32 +36,6 @@ func testNotEquals(t testing.TB, actual, expected interface{}, msg ...string) {
 	}
 }
 
-func testResponsesChannelEmpty(t testing.TB, chnl chan Response, msg ...string) {
-	expected := "no response"
-	var rsp string
-	select {
-	case _ = <-chnl:
-		rsp = "got response"
-	default:
-		rsp = "no response"
-	}
-	testEquals(t, rsp, expected)
-}
-
-func testChannelHasResponse(t testing.TB, chnl chan Response, msg ...string) {
-	expected := "got response"
-	var r Response
-	var rsp string
-	select {
-	case r = <-chnl:
-		rsp = "got response"
-	default:
-		rsp = "no response"
-	}
-	t.Log(r)
-	testEquals(t, rsp, expected)
-}
-
 func testCommonErr(t testing.TB, actual, expected interface{}, msg []string) {
 	message := strings.Join(msg, ", ")
 	_, file, line, _ := runtime.Caller(2)
@@ -75,6 +50,19 @@ func testCommonErr(t testing.TB, actual, expected interface{}, msg []string) {
 		testDeref(expected),
 		testDeref(expected),
 	)
+}
+
+func testIsPlaceholderResponse(t testing.TB, actual Response, msg ...string) {
+	if actual.StatusCode != http.StatusTeapot {
+		message := strings.Join(msg, ", ")
+		_, file, line, _ := runtime.Caller(1)
+		t.Errorf(
+			"%s:%d placeholder expected -- %s",
+			filepath.Base(file),
+			line,
+			message,
+		)
+	}
 }
 
 func testDeref(v interface{}) interface{} {
@@ -94,21 +82,16 @@ func testDeref(v interface{}) interface{} {
 
 // for easy time manipulation during tests
 type fakeNower struct {
-	now  time.Time
 	iter int
 }
 
-// Now() returns the nth element of nows
+// Now() supports changing/increasing the returned Now() based on the number of
+// times it's called in succession
 func (f *fakeNower) Now() time.Time {
-	now := f.now.Add(time.Second * 10 * time.Duration(f.iter))
+	now := time.Unix(1277132645, 0).Add(time.Second * 10 * time.Duration(f.iter))
 	f.iter += 1
 	return now
 }
-func (f *fakeNower) set(t time.Time) {
-	f.now = t
-}
 func (f *fakeNower) init() {
 	f.iter = 0
-	t0, _ := time.Parse(time.RFC3339, "2010-06-21T15:04:05Z")
-	f.now = t0
 }

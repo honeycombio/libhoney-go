@@ -6,43 +6,67 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 )
 
+var (
+	placeholder = Response{StatusCode: http.StatusTeapot}
+)
+
 func TestTxAdd(t *testing.T) {
 	dc := &txDefaultClient{}
-	conf := &Config{}
 	dc.muster.Work = make(chan interface{}, 1)
 	responses = make(chan Response, 1)
+	responses <- placeholder
+
+	// default successful case
 	e := &Event{Metadata: "mmeetta"}
 	dc.Add(e)
 	added := <-dc.muster.Work
 	testEquals(t, e, added)
-	testResponsesChannelEmpty(t, responses)
+	testIsPlaceholderResponse(t, <-responses,
+		"work was simply queued; no response available yet")
+
 	// make the queue 0 length to force an overflow
 	dc.muster.Work = make(chan interface{}, 0)
 	dc.Add(e)
-	t.Log("1")
-	testChannelHasResponse(t, responses)
-	t.Log("2")
+	rsp := <-responses
+	testErr(t, rsp.Err)
+	testEquals(t, rsp.Err.Error(), "queue overflow",
+		"overflow error should have been put on responses channel immediately")
+	// make sure that (default) nonblocking on responses allows execution even if
+	// responses channel is full
+	responses <- placeholder
+	dc.Add(e)
+	testIsPlaceholderResponse(t, <-responses,
+		"placeholder was blocking responses channel but .Add should have continued")
+
 	// test blocking on send still gets it down the channel
-	conf.BlockOnSend = true
+	dc.blockOnSend = true
 	dc.muster.Work = make(chan interface{}, 1)
+	responses <- placeholder
+
 	dc.Add(e)
 	added = <-dc.muster.Work
-	t.Log("3")
 	testEquals(t, e, added)
-	testResponsesChannelEmpty(t, responses)
-	t.Log("4")
+	testIsPlaceholderResponse(t, <-responses,
+		"blockOnSend doesn't affect the responses queue")
+
 	// test blocking on response still gets an overflow down the channel
-	conf.BlockOnSend = false
-	conf.BlockOnResponse = true
+	dc.blockOnSend = false
+	dc.blockOnResponses = true
 	dc.muster.Work = make(chan interface{}, 0)
-	dc.Add(e)
-	t.Log("5")
-	testChannelHasResponse(t, responses)
-	t.Log("6")
+
+	responses <- placeholder
+	go dc.Add(e)
+	testIsPlaceholderResponse(t, <-responses,
+		"should pull placeholder response off channel first")
+	rsp = <-responses
+	testErr(t, rsp.Err)
+	testEquals(t, rsp.Err.Error(), "queue overflow",
+		"overflow error should have been pushed into channel")
 }
 
 type FakeBody struct{}
@@ -67,13 +91,13 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestTxSendRequest(t *testing.T) {
-	conf := &Config{}
 	responses = make(chan Response, 1)
 	fn := &fakeNower{}
 	fn.init()
 	b := &batch{
-		httpClient: &http.Client{},
-		n:          fn,
+		httpClient:  &http.Client{},
+		testNower:   fn,
+		testBlocker: &sync.WaitGroup{},
 	}
 
 	frt := &FakeRoundTripper{}
@@ -110,16 +134,16 @@ func TestTxSendRequest(t *testing.T) {
 	testOK(t, rsp.Err)
 
 	// test UserAgentAddition
-	fn.init()
 	UserAgentAddition = "  fancyApp/3 "
 	expectedUserAgentAddition := "fancyApp/3"
 	longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
 	b.sendRequest(e)
 	testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
 	rsp = <-responses
+	testEquals(t, rsp.StatusCode, 200)
+	testOK(t, rsp.Err)
 
 	// test unsuccessful send
-	fn.init()
 	frt.resp = nil
 	frt.respErr = errors.New("testing error handling")
 	b.sendRequest(e)
@@ -128,30 +152,41 @@ func TestTxSendRequest(t *testing.T) {
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
 
+	// test nonblocking response path is actually nonblocking, drops response
+	responses <- placeholder
+	b.testBlocker.Add(1)
+	go b.sendRequest(e)
+	b.testBlocker.Wait() // triggered on drop
+	testIsPlaceholderResponse(t, <-responses,
+		"should pull placeholder response and only placeholder response off channel")
+
 	// test blocking response path, error
-	conf.BlockOnResponse = true
-	fn.init()
+	b.blockOnResponses = true
 	frt.resp = nil
 	frt.respErr = errors.New("testing error handling")
-	b.sendRequest(e)
+	responses <- placeholder
+	go b.sendRequest(e)
+	testIsPlaceholderResponse(t, <-responses,
+		"should pull placeholder response off channel first")
 	rsp = <-responses
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
 
 	// test blocking response path, no error
-	conf.BlockOnResponse = true
 	fn.init()
 	frt.resp = &http.Response{
 		StatusCode: 200,
 		Body:       ioutil.NopCloser(&FakeBody{}),
 	}
 	frt.respErr = nil
-	b.sendRequest(e)
+	responses <- placeholder
+	go b.sendRequest(e)
+	testIsPlaceholderResponse(t, <-responses,
+		"should pull placeholder response off channel first")
 	rsp = <-responses
 	testEquals(t, rsp.Duration, time.Second*10)
 	testEquals(t, rsp.Metadata, "emmetta")
 	testEquals(t, rsp.StatusCode, 200)
 	testOK(t, rsp.Err)
-
 }
