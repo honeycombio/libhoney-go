@@ -35,12 +35,11 @@ const (
 	defaultpendingWorkCapacity = 10000
 )
 
-// for validation
 var (
 	ptrKinds = []reflect.Kind{reflect.Ptr, reflect.Slice, reflect.Map}
 )
 
-// globals for singleton-like behavior
+// globals to support default/singleton-like behavior
 var (
 	tx     txClient
 	txOnce sync.Once
@@ -138,6 +137,28 @@ type Event struct {
 
 	// fieldHolder contains fields (and methods) common to both events and builders
 	fieldHolder
+}
+
+// Marshaling an Event for batching up to the Honeycomb servers. Omits fields
+// that aren't specific to this particular event, and allows for behavior like
+// omitempty'ing a zero'ed out time.Time.
+func (e Event) MarshalJSON() ([]byte, error) {
+	tPointer := &(e.Timestamp)
+	if e.Timestamp.IsZero() {
+		tPointer = nil
+	}
+
+	// don't include sample rate if it's 1; this is the default
+	sampleRate := e.SampleRate
+	if sampleRate == 1 {
+		sampleRate = 0
+	}
+
+	return json.Marshal(struct {
+		Data       map[string]interface{} `json:"data"`
+		SampleRate uint                   `json:"samplerate,omitempty"`
+		Timestamp  *time.Time             `json:"time,omitempty"`
+	}{e.data, sampleRate, tPointer})
 }
 
 // Builder is used to create templates for new events, specifying default fields

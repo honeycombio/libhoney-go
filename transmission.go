@@ -12,6 +12,7 @@ package libhoney
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,7 +54,7 @@ func (t *txDefaultClient) Start() error {
 	t.muster.PendingWorkCapacity = t.pendingWorkCapacity
 	t.muster.BatchMaker = func() muster.Batch {
 		return &batch{
-			events:           make([]*Event, 0, t.maxBatchSize),
+			events:           map[string][]*Event{},
 			httpClient:       &http.Client{Transport: t.transport},
 			blockOnResponses: t.blockOnResponses,
 		}
@@ -120,7 +121,7 @@ func (t *txTestClient) Add(ev *Event) {
 }
 
 type batch struct {
-	events           []*Event
+	events           map[string][]*Event
 	httpClient       *http.Client
 	blockOnResponses bool
 
@@ -130,14 +131,192 @@ type batch struct {
 }
 
 func (b *batch) Add(ev interface{}) {
-	b.events = append(b.events, ev.(*Event))
+	// from muster godoc: "The Batch does not need to be safe for concurrent
+	// access; synchronization will be handled by the Client."
+	if b.events == nil {
+		b.events = map[string][]*Event{}
+	}
+	e := ev.(*Event)
+	if _, ok := b.events[e.Dataset]; !ok {
+		b.events[e.Dataset] = make([]*Event, 0, 1)
+	}
+	b.events[e.Dataset] = append(b.events[e.Dataset], e)
+}
+
+// Provides finer-tuned control over handling serialization errors (by
+// returning individual errors down the responses channel.
+func (b *batch) MarshalJSON() ([]byte, error) {
+	buf := bytes.Buffer{}
+	buf.WriteByte('{')
+
+	keys := make([]string, 0, len(b.events))
+	for datasetName := range b.events {
+		keys = append(keys, datasetName)
+	}
+	sort.Strings(keys) // parity with encoding/json's mapEncoder
+
+	var mapCt int
+	var arrCt int
+	var totalEncoded int
+	for _, datasetName := range keys {
+		kBytes, err := json.Marshal(datasetName) // lean on encoding/json's stringEncoder
+		if err != nil {
+			// return err for all of the dataset's events
+			for _, ev := range b.events[datasetName] {
+				b.enqueueResponse(Response{
+					Err:      err,
+					Metadata: ev.Metadata,
+				})
+			}
+			continue
+		}
+		if mapCt > 0 {
+			buf.WriteByte(',')
+		}
+		mapCt++
+		buf.Write(kBytes)
+		buf.WriteByte(':')
+		buf.WriteByte('[')
+
+		arrCt = 0
+		for _, ev := range b.events[datasetName] {
+			eBytes, err := json.Marshal(ev)
+			if err != nil {
+				b.enqueueResponse(Response{
+					Err:      err,
+					Metadata: ev.Metadata,
+				})
+				continue
+			}
+			if arrCt > 0 {
+				buf.WriteByte(',')
+			}
+			arrCt++
+			totalEncoded++
+			buf.Write(eBytes)
+		}
+		buf.WriteByte(']')
+	}
+	if totalEncoded == 0 {
+		// If the datasetName was written but no Events were, make sure to return an
+		// explicitly empty object
+		return []byte("{}"), nil
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+func (b *batch) enqueueResponse(resp Response) {
+	if b.blockOnResponses {
+		responses <- resp
+	} else {
+		select {
+		case responses <- resp:
+		default: // drop on the floor (and maybe notify tests)
+			if b.testBlocker != nil {
+				b.testBlocker.Done()
+			}
+		}
+	}
 }
 
 func (b *batch) Fire(notifier muster.Notifier) {
 	defer notifier.Done()
 
-	for _, e := range b.events {
-		b.sendRequest(e)
+	start := time.Now().UTC()
+	if b.testNower != nil {
+		start = b.testNower.Now()
+	}
+
+	blob, _ := json.Marshal(b) // always returns nil err
+
+	// If json.Marshal returns the shortest valid JSON object, we don't have
+	// anything worth sending to Honeycomb (we may have failed to enqueue any
+	// events, for any dataset). Don't bother enqueueing a Response;
+	// batch.MarshalJSON likely already did that for us.
+	if len(blob) <= 2 {
+		return
+	}
+
+	// sigh. dislike
+	userAgent := fmt.Sprintf("libhoney-go/%s", version)
+	if UserAgentAddition != "" {
+		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
+	}
+
+	// FML. technically we have nothing that constrains events to a single APIHost
+	// or a single WriteKey per batch. ugggg ben suggestions?
+	var apiHost string
+	var writeKey string
+	for _, events := range b.events {
+		if len(events) < 1 {
+			continue
+		}
+		apiHost = events[0].APIHost
+		writeKey = events[0].WriteKey
+		break
+	}
+
+	// TODO GZIP!
+
+	// sigh
+	url := fmt.Sprintf("%s/1/batch", apiHost)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(blob))
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Add("X-Honeycomb-Team", writeKey)
+
+	// send off batch!
+	resp, err := b.httpClient.Do(req)
+	end := time.Now().UTC()
+	if b.testNower != nil {
+		end = b.testNower.Now()
+	}
+	dur := end.Sub(start)
+
+	batchSize := 0
+	for _, events := range b.events {
+		batchSize += len(events) // ... missing out on events dropped during json encoding
+	}
+
+	if err != nil {
+		sd.Increment("send_errors")
+		// if there's a top-level error, we should send an error response down for
+		// every event?? do we actually have examples that read responses and retry?
+		b.enqueueResponse(Response{
+			Duration: dur,
+			Metadata: fmt.Sprintf("batch containing %d events for %d datasets", batchSize, len(b.events)),
+			Err:      err,
+		})
+		return
+	}
+
+	sd.Increment("batches_sent")
+	sd.Count("messages_sent", batchSize)
+	defer resp.Body.Close()
+
+	batchResponse := map[string][]Response{}
+	err = json.NewDecoder(resp.Body).Decode(&batchResponse)
+	if err != nil {
+		sd.Increment("response_decode_errors")
+		b.enqueueResponse(Response{
+			Duration: dur,
+			Metadata: fmt.Sprintf("batch containing %d events for %d datasets", batchSize, len(b.events)),
+			Err:      err,
+		})
+		return
+	}
+
+	for datasetName, resps := range batchResponse {
+		if events, ok := b.events[datasetName]; ok { // just in case
+			for i, resp := range resps {
+				resp.Duration = dur / time.Duration(batchSize)
+				if i < len(events) { // just in case
+					resp.Metadata = events[i].Metadata
+				}
+				b.enqueueResponse(resp)
+			}
+		}
 	}
 }
 

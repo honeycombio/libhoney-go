@@ -1,6 +1,10 @@
 package libhoney
 
-import "time"
+import (
+	"encoding/json"
+	"errors"
+	"time"
+)
 
 // Response is a record of an event sent. It includes information about sending
 // the event - how long it took, whether it succeeded, and so on. It also has
@@ -29,4 +33,19 @@ type Response struct {
 	// Metadata is whatever content you put in the Metadata field of the event for
 	// which this is the response. It is passed through unmodified.
 	Metadata interface{}
+}
+
+func (r *Response) UnmarshalJSON(b []byte) error {
+	aux := struct {
+		Error  string
+		Status int
+	}{}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	r.StatusCode = aux.Status
+	if aux.Error != "" {
+		r.Err = errors.New(aux.Error)
+	}
+	return nil
 }
