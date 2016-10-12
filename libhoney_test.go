@@ -1,8 +1,11 @@
 package libhoney
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"runtime"
 	"testing"
 	"time"
@@ -501,6 +504,30 @@ func TestSendTime(t *testing.T) {
 		testEquals(t, len(testTx.datas), i+1)
 		testEquals(t, string(testTx.datas[i]), expected)
 	}
+}
+
+type testTransport struct {
+	invoked bool
+}
+
+func (tr *testTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	tr.invoked = true
+	return &http.Response{Body: ioutil.NopCloser(bytes.NewReader(nil))}, nil
+}
+
+func TestSendTestTransport(t *testing.T) {
+	tr := &testTransport{}
+	Init(Config{
+		WriteKey:  "foo",
+		Dataset:   "bar",
+		Transport: tr,
+	})
+
+	err := SendNow(map[string]interface{}{"foo": 3})
+	tx.Stop()  // flush unsent events
+	tx.Start() // reopen tx.muster channel
+	testOK(t, err)
+	testEquals(t, tr.invoked, true)
 }
 
 func TestChannelMembers(t *testing.T) {

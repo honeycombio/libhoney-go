@@ -39,6 +39,8 @@ type txDefaultClient struct {
 	blockOnSend          bool          // whether to block or drop events when the queue fills
 	blockOnResponses     bool          // whether to block or drop responses when the queue fills
 
+	transport http.RoundTripper
+
 	muster muster.Client
 }
 
@@ -50,7 +52,7 @@ func (t *txDefaultClient) Start() error {
 	t.muster.BatchMaker = func() muster.Batch {
 		return &batch{
 			events:           make([]*Event, 0, t.maxBatchSize),
-			httpClient:       &http.Client{},
+			httpClient:       &http.Client{Transport: t.transport},
 			blockOnResponses: t.blockOnResponses,
 		}
 	}
@@ -201,10 +203,4 @@ func (b *batch) sendRequest(e *Event) {
 // nower to make testing easier
 type nower interface {
 	Now() time.Time
-}
-
-type realNower struct{}
-
-func (r *realNower) Now() time.Time {
-	return time.Now().UTC()
 }

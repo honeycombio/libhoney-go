@@ -92,21 +92,18 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func TestTxSendRequest(t *testing.T) {
 	responses = make(chan Response, 1)
-	fn := &fakeNower{}
-	fn.init()
-	b := &batch{
-		httpClient:  &http.Client{},
-		testNower:   fn,
-		testBlocker: &sync.WaitGroup{},
-	}
-
 	frt := &FakeRoundTripper{}
 	frt.resp = &http.Response{
 		StatusCode: 200,
 		Body:       ioutil.NopCloser(&FakeBody{}),
 	}
-	frt.respErr = nil
-	b.httpClient.Transport = frt
+
+	b := &batch{
+		httpClient:  &http.Client{Transport: frt},
+		testNower:   &fakeNower{},
+		testBlocker: &sync.WaitGroup{},
+	}
+
 	fhData := map[string]interface{}{
 		"foo": "bar",
 	}
@@ -174,7 +171,6 @@ func TestTxSendRequest(t *testing.T) {
 	testEquals(t, len(rsp.Body), 0)
 
 	// test blocking response path, no error
-	fn.init()
 	frt.resp = &http.Response{
 		StatusCode: 200,
 		Body:       ioutil.NopCloser(&FakeBody{}),

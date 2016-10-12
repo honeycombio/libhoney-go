@@ -92,6 +92,3 @@ func (f *fakeNower) Now() time.Time {
 	f.iter += 1
 	return now
 }
-func (f *fakeNower) init() {
-	f.iter = 0
-}

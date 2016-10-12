@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -113,6 +114,11 @@ type Config struct {
 	SendFrequency        time.Duration // how often to send off batches
 	MaxConcurrentBatches uint          // how many batches can be inflight simultaneously
 	PendingWorkCapacity  uint          // how many events to allow to pile up
+
+	// Transport can be provided to the http.Client attempting to talk to
+	// Honeycomb servers. Intended for use in tests in order to assert on
+	// expected behavior.
+	Transport http.RoundTripper
 }
 
 type Event struct {
@@ -206,6 +212,7 @@ func Init(config Config) error {
 		pendingWorkCapacity:  config.PendingWorkCapacity,
 		blockOnSend:          config.BlockOnSend,
 		blockOnResponses:     config.BlockOnResponse,
+		transport:            config.Transport,
 	}
 
 	if err := tx.Start(); err != nil {
