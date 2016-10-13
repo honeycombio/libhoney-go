@@ -26,13 +26,13 @@ func TestTxAdd(t *testing.T) {
 	dc.Add(e)
 	added := <-dc.muster.Work
 	testEquals(t, e, added)
-	testIsPlaceholderResponse(t, <-responses,
-		"work was simply queued; no response available yet")
+	rsp := testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp, "work was simply queued; no response available yet")
 
 	// make the queue 0 length to force an overflow
 	dc.muster.Work = make(chan interface{}, 0)
 	dc.Add(e)
-	rsp := <-responses
+	rsp = testGetResponse(t, responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.Err.Error(), "queue overflow",
 		"overflow error should have been put on responses channel immediately")
@@ -40,7 +40,8 @@ func TestTxAdd(t *testing.T) {
 	// responses channel is full
 	responses <- placeholder
 	dc.Add(e)
-	testIsPlaceholderResponse(t, <-responses,
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp,
 		"placeholder was blocking responses channel but .Add should have continued")
 
 	// test blocking on send still gets it down the channel
@@ -51,8 +52,8 @@ func TestTxAdd(t *testing.T) {
 	dc.Add(e)
 	added = <-dc.muster.Work
 	testEquals(t, e, added)
-	testIsPlaceholderResponse(t, <-responses,
-		"blockOnSend doesn't affect the responses queue")
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp, "blockOnSend doesn't affect the responses queue")
 
 	// test blocking on response still gets an overflow down the channel
 	dc.blockOnSend = false
@@ -61,9 +62,9 @@ func TestTxAdd(t *testing.T) {
 
 	responses <- placeholder
 	go dc.Add(e)
-	testIsPlaceholderResponse(t, <-responses,
-		"should pull placeholder response off channel first")
-	rsp = <-responses
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp, "should pull placeholder response off channel first")
+	rsp = testGetResponse(t, responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.Err.Error(), "queue overflow",
 		"overflow error should have been pushed into channel")
@@ -124,7 +125,7 @@ func TestTxSendRequest(t *testing.T) {
 	testEquals(t, frt.req.Header.Get("X-Honeycomb-SampleRate"), "4")
 	testEquals(t, frt.reqBody, `{"foo":"bar"}`)
 
-	rsp := <-responses
+	rsp := testGetResponse(t, responses)
 	testEquals(t, rsp.Duration, time.Second*10)
 	testEquals(t, rsp.Metadata, "emmetta")
 	testEquals(t, rsp.StatusCode, 200)
@@ -136,7 +137,7 @@ func TestTxSendRequest(t *testing.T) {
 	longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
 	b.sendRequest(e)
 	testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
-	rsp = <-responses
+	rsp = testGetResponse(t, responses)
 	testEquals(t, rsp.StatusCode, 200)
 	testOK(t, rsp.Err)
 
@@ -144,7 +145,7 @@ func TestTxSendRequest(t *testing.T) {
 	frt.resp = nil
 	frt.respErr = errors.New("testing error handling")
 	b.sendRequest(e)
-	rsp = <-responses
+	rsp = testGetResponse(t, responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
@@ -154,7 +155,8 @@ func TestTxSendRequest(t *testing.T) {
 	b.testBlocker.Add(1)
 	go b.sendRequest(e)
 	b.testBlocker.Wait() // triggered on drop
-	testIsPlaceholderResponse(t, <-responses,
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response and only placeholder response off channel")
 
 	// test blocking response path, error
@@ -163,9 +165,10 @@ func TestTxSendRequest(t *testing.T) {
 	frt.respErr = errors.New("testing error handling")
 	responses <- placeholder
 	go b.sendRequest(e)
-	testIsPlaceholderResponse(t, <-responses,
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
-	rsp = <-responses
+	rsp = testGetResponse(t, responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
@@ -178,9 +181,10 @@ func TestTxSendRequest(t *testing.T) {
 	frt.respErr = nil
 	responses <- placeholder
 	go b.sendRequest(e)
-	testIsPlaceholderResponse(t, <-responses,
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
-	rsp = <-responses
+	rsp = testGetResponse(t, responses)
 	testEquals(t, rsp.Duration, time.Second*10)
 	testEquals(t, rsp.Metadata, "emmetta")
 	testEquals(t, rsp.StatusCode, 200)

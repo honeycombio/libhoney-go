@@ -52,6 +52,17 @@ func testCommonErr(t testing.TB, actual, expected interface{}, msg []string) {
 	)
 }
 
+func testGetResponse(t testing.TB, ch chan Response) Response {
+	_, file, line, _ := runtime.Caller(2)
+	var resp Response
+	select {
+	case resp = <-ch:
+	case <-time.After(5 * time.Millisecond): // block on read but prevent deadlocking tests
+		t.Errorf("%s:%d: expected response on channel and timed out waiting for it!", filepath.Base(file), line)
+	}
+	return resp
+}
+
 func testIsPlaceholderResponse(t testing.TB, actual Response, msg ...string) {
 	if actual.StatusCode != http.StatusTeapot {
 		message := strings.Join(msg, ", ")
