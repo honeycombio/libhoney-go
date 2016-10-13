@@ -1,6 +1,8 @@
 package libhoney
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,7 +130,12 @@ func TestTxSendSingle(t *testing.T) {
 	versionedUserAgent := fmt.Sprintf("libhoney-go/%s", version)
 	testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
 	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.WriteKey)
-	testEquals(t, frt.reqBody, `{"ds1":[{"data":{"foo":"bar"},"samplerate":4}]}`)
+	buf := &bytes.Buffer{}
+	g := gzip.NewWriter(buf)
+	_, err := g.Write([]byte(`{"ds1":[{"data":{"foo":"bar"},"samplerate":4}]}`))
+	testOK(t, err)
+	testOK(t, g.Close())
+	testEquals(t, frt.reqBody, buf.String())
 
 	rsp := testGetResponse(t, responses)
 	testEquals(t, rsp.Duration, time.Second*10)
