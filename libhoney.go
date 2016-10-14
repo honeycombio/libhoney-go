@@ -40,16 +40,13 @@ var (
 
 // globals for singleton-like behavior
 var (
-	blockOnResponses          = false
-	tx               txClient = &txDefaultClient{
-		maxBatchSize:         defaultmaxBatchSize,
-		batchTimeout:         defaultbatchTimeout,
-		maxConcurrentBatches: defaultmaxConcurrentBatches,
-		pendingWorkCapacity:  defaultpendingWorkCapacity,
-	}
-	sd, _          = statsd.New(statsd.Mute(true)) // init working default, to be overridden
-	responses      = make(chan Response, 2*defaultpendingWorkCapacity)
-	defaultBuilder = &Builder{
+	tx     txClient
+	txOnce sync.Once
+
+	blockOnResponses = false
+	sd, _            = statsd.New(statsd.Mute(true)) // init working default, to be overridden
+	responses        = make(chan Response, 2*defaultpendingWorkCapacity)
+	defaultBuilder   = &Builder{
 		APIHost:    defaultAPIHost,
 		SampleRate: defaultSampleRate,
 		dynFields:  make([]dynamicField, 0, 0),
@@ -58,10 +55,6 @@ var (
 		},
 	}
 )
-
-func init() {
-	tx.Start()
-}
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
@@ -204,7 +197,6 @@ func Init(config Config) error {
 	blockOnResponses = config.BlockOnResponse
 
 	// reset the global transmission
-	tx.Stop()
 	tx = &txDefaultClient{
 		maxBatchSize:         config.MaxBatchSize,
 		batchTimeout:         config.SendFrequency,
@@ -458,6 +450,18 @@ func (e *Event) Send() error {
 	if e.Dataset == "" {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
 	}
+
+	txOnce.Do(func() {
+		if tx == nil {
+			tx = &txDefaultClient{
+				maxBatchSize:         defaultmaxBatchSize,
+				batchTimeout:         defaultbatchTimeout,
+				maxConcurrentBatches: defaultmaxConcurrentBatches,
+				pendingWorkCapacity:  defaultpendingWorkCapacity,
+			}
+			tx.Start()
+		}
+	})
 
 	tx.Add(e)
 	return nil
