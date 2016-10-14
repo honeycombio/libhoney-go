@@ -1,6 +1,6 @@
 package libhoney
 
-// Package transmission handles sending events to houd.
+// txClient handles the transmission of events to Honeycomb.
 //
 // Overview
 //
@@ -8,6 +8,7 @@ package libhoney
 // Set any of the public fields for which you want to override the defaults.
 // Call Start() to spin up the background goroutines necessary for transmission
 // Call Add(Event) to queue an event for transmission
+// Ensure Stop() is called to flush all in-flight messages.
 
 import (
 	"bytes"
@@ -18,6 +19,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/facebookgo/muster"
@@ -37,6 +39,8 @@ type txDefaultClient struct {
 	blockOnSend          bool          // whether to block or drop events when the queue fills
 	blockOnResponses     bool          // whether to block or drop responses when the queue fills
 
+	transport http.RoundTripper
+
 	muster muster.Client
 }
 
@@ -48,8 +52,7 @@ func (t *txDefaultClient) Start() error {
 	t.muster.BatchMaker = func() muster.Batch {
 		return &batch{
 			events:           make([]*Event, 0, t.maxBatchSize),
-			n:                &realNower{},
-			httpClient:       &http.Client{},
+			httpClient:       &http.Client{Transport: t.transport},
 			blockOnResponses: t.blockOnResponses,
 		}
 	}
@@ -114,9 +117,12 @@ func (t *txTestClient) Add(ev *Event) {
 
 type batch struct {
 	events           []*Event
-	n                nower
 	httpClient       *http.Client
 	blockOnResponses bool
+
+	// allows manipulation of the value of "now" for testing
+	testNower   nower
+	testBlocker *sync.WaitGroup
 }
 
 func (b *batch) Add(ev interface{}) {
@@ -125,6 +131,7 @@ func (b *batch) Add(ev interface{}) {
 
 func (b *batch) Fire(notifier muster.Notifier) {
 	defer notifier.Done()
+
 	for _, e := range b.events {
 		b.sendRequest(e)
 	}
@@ -132,7 +139,10 @@ func (b *batch) Fire(notifier muster.Notifier) {
 
 // sendRequest sends an individual request to Honeycomb and returns
 func (b *batch) sendRequest(e *Event) {
-	start := b.n.Now()
+	start := time.Now().UTC()
+	if b.testNower != nil {
+		start = b.testNower.Now()
+	}
 	timestamp := e.Timestamp
 	blob, err := json.Marshal(e.data)
 	if err != nil {
@@ -156,25 +166,31 @@ func (b *batch) sendRequest(e *Event) {
 
 	resp, err := b.httpClient.Do(req)
 
-	dur := b.n.Now().Sub(start)
+	end := time.Now().UTC()
+	if b.testNower != nil {
+		end = b.testNower.Now()
+	}
+	dur := end.Sub(start)
 	evResp := Response{}
-	if !b.blockOnResponses {
-		defer func() {
+	defer func() {
+		if b.blockOnResponses {
+			responses <- evResp
+		} else {
 			select {
 			case responses <- evResp:
 			default:
+				if b.testBlocker != nil {
+					b.testBlocker.Done()
+				}
 			}
-		}()
-	}
+		}
+	}()
 	evResp.Duration = dur
 	evResp.Metadata = e.Metadata
 	if err != nil {
 		// TODO add logging or something to raise this error
 		sd.Increment("send_errors")
 		evResp.Err = err
-		if b.blockOnResponses {
-			responses <- evResp
-		}
 		return
 	}
 	sd.Increment("messages_sent")
@@ -182,18 +198,9 @@ func (b *batch) sendRequest(e *Event) {
 	evResp.StatusCode = resp.StatusCode
 	body, _ := ioutil.ReadAll(resp.Body)
 	evResp.Body = body
-	if b.blockOnResponses {
-		responses <- evResp
-	}
 }
 
 // nower to make testing easier
 type nower interface {
 	Now() time.Time
-}
-
-type realNower struct{}
-
-func (r *realNower) Now() time.Time {
-	return time.Now().UTC()
 }

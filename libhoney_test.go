@@ -1,8 +1,11 @@
 package libhoney
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"runtime"
 	"testing"
 	"time"
@@ -14,7 +17,7 @@ import (
 // tests interact with the same variables in a way that is not like how it
 // would be used. This function resets things to a blank state.
 func resetPackageVars() {
-	globalState = &Builder{}
+	defaultBuilder = &Builder{}
 	sd, _ = statsd.New(statsd.Mute(true))
 }
 
@@ -411,7 +414,7 @@ func TestBuilderDynFields(t *testing.T) {
 	AddDynamicField("ints", myIntFn)
 	b := NewBuilder()
 	b.AddDynamicField("strs", myStrFn)
-	testEquals(t, len(globalState.dynFields), 1)
+	testEquals(t, len(defaultBuilder.dynFields), 1)
 	testEquals(t, len(b.dynFields), 2)
 
 	ev1 := NewEvent()
@@ -501,6 +504,30 @@ func TestSendTime(t *testing.T) {
 		testEquals(t, len(testTx.datas), i+1)
 		testEquals(t, string(testTx.datas[i]), expected)
 	}
+}
+
+type testTransport struct {
+	invoked bool
+}
+
+func (tr *testTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	tr.invoked = true
+	return &http.Response{Body: ioutil.NopCloser(bytes.NewReader(nil))}, nil
+}
+
+func TestSendTestTransport(t *testing.T) {
+	tr := &testTransport{}
+	Init(Config{
+		WriteKey:  "foo",
+		Dataset:   "bar",
+		Transport: tr,
+	})
+
+	err := SendNow(map[string]interface{}{"foo": 3})
+	tx.Stop()  // flush unsent events
+	tx.Start() // reopen tx.muster channel
+	testOK(t, err)
+	testEquals(t, tr.invoked, true)
 }
 
 func TestChannelMembers(t *testing.T) {

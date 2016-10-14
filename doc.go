@@ -4,9 +4,9 @@ Package libhoney is a client library for sending data to https://honeycomb.io
 Summary
 
 libhoney aims to make it as easy as possible to create events and send them on
-into honeycomb.
+into Honeycomb.
 
-See https://docs.honeycomb.io for background on how to use this library
+See https://honeycomb.io/docs for background on this library.
 
 Look in the examples/ directory for a complete example using libhoney.
 */
