@@ -77,7 +77,7 @@ func main() {
 
 func readResponses(responses chan libhoney.Response) {
 	for r := range responses {
-		if r.StatusCode == 200 {
+		if r.StatusCode >= 200 && r.StatusCode < 300 {
 			id := r.Metadata.(string)
 			fmt.Printf("Successfully sent event %s to Honeycomb\n", id)
 		} else {

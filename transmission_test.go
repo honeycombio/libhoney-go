@@ -111,6 +111,7 @@ func TestTxSendSingle(t *testing.T) {
 		}
 		frt.respErr = err
 		b.events = nil
+		b.numEncoded = 0
 	}
 
 	fhData := map[string]interface{}{"foo": "bar"}
@@ -222,9 +223,9 @@ func TestTxSendBatch(t *testing.T) {
 			`{"ds1":[{"data":{"a":1}},{"data":{"b":2,"bb":22}},{"data":{"c":3.1}}]}`,
 			`{"ds1":[{"status":202},{"status":202},{"status":429,"error":"bratelimited"}]}`,
 			[]Response{
-				{StatusCode: 202},
-				{StatusCode: 202},
-				{Err: errors.New("bratelimited"), StatusCode: 429},
+				{StatusCode: 202, Metadata: "emmetta0"},
+				{StatusCode: 202, Metadata: "emmetta1"},
+				{Err: errors.New("bratelimited"), StatusCode: 429, Metadata: "emmetta2"},
 			},
 		},
 		{
@@ -248,11 +249,9 @@ func TestTxSendBatch(t *testing.T) {
 			StatusCode: 200,
 		},
 	}
-	b := &batch{
-		httpClient: &http.Client{Transport: frt},
-	}
 
 	for _, tt := range tsts {
+		b := &batch{httpClient: &http.Client{Transport: frt}}
 		responses = make(chan Response, len(tt.expected))
 		frt.resp.Body = ioutil.NopCloser(strings.NewReader(tt.response))
 		for i, data := range tt.in {
@@ -268,6 +267,7 @@ func TestTxSendBatch(t *testing.T) {
 		for _, expResp := range tt.expected {
 			resp := testGetResponse(t, responses)
 			testEquals(t, resp.StatusCode, expResp.StatusCode)
+			testEquals(t, resp.Metadata, expResp.Metadata)
 			if expResp.Err != nil {
 				if !strings.Contains(resp.Err.Error(), expResp.Err.Error()) {
 					t.Errorf("expected error to contain '%s', got: '%s'", expResp.Err.Error(), resp.Err.Error())
@@ -281,9 +281,10 @@ func TestTxSendBatch(t *testing.T) {
 
 func TestBatchMarshal(t *testing.T) {
 	tsts := []struct {
-		in       map[string][]map[string]interface{}
-		expected string
-		errMsgs  []string
+		in          map[string][]map[string]interface{}
+		niledEvents map[string][]bool
+		expected    string
+		errMsgs     []string
 	}{
 		{
 			map[string][]map[string]interface{}{
@@ -300,11 +301,17 @@ func TestBatchMarshal(t *testing.T) {
 					{"f": 6},
 				},
 			},
+			map[string][]bool{
+				"alpha": {false, true, false},
+				"beta":  {true, false},
+				"gamma": {false},
+			},
 			`{"alpha":[{"data":{"a":1}},{"data":{"c":3}}],"beta":[{"data":{"e":5}}],"gamma":[{"data":{"f":6}}]}`,
 			[]string{"MarshalJSON", "MarshalJSON"},
 		},
 		{ // shouldn't happen based on how muster works, but just in case
 			map[string][]map[string]interface{}{"nada": {}},
+			map[string][]bool{"nada": []bool{}},
 			"{}",
 			nil,
 		},
@@ -317,6 +324,10 @@ func TestBatchMarshal(t *testing.T) {
 				"zip": {
 					{"c": func() {}},
 				},
+			},
+			map[string][]bool{
+				"nada": {true, true},
+				"zip":  {true},
 			},
 			"{}",
 			[]string{"MarshalJSON", "MarshalJSON", "MarshalJSON"},
@@ -340,6 +351,14 @@ func TestBatchMarshal(t *testing.T) {
 		encoded, err := json.Marshal(b)
 		testOK(t, err)
 		testEquals(t, string(encoded), tt.expected)
+		for datasetName, nilList := range tt.niledEvents {
+			for i, ev := range b.events[datasetName] {
+				if nilList[i] != (ev == nil) {
+					t.Errorf("expected %s event at index %d to be nil, but was %+v",
+						datasetName, i, ev)
+				}
+			}
+		}
 		for _, errMsg := range tt.errMsgs {
 			rsp := testGetResponse(t, responses)
 			testErr(t, rsp.Err)

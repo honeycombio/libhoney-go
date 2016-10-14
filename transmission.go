@@ -124,6 +124,7 @@ type batch struct {
 	events           map[string][]*Event
 	httpClient       *http.Client
 	blockOnResponses bool
+	numEncoded       int
 
 	// allows manipulation of the value of "now" for testing
 	testNower   nower
@@ -157,7 +158,6 @@ func (b *batch) MarshalJSON() ([]byte, error) {
 
 	var mapCt int
 	var arrCt int
-	var totalEncoded int
 	for _, datasetName := range keys {
 		kBytes, err := json.Marshal(datasetName) // lean on encoding/json's stringEncoder
 		if err != nil {
@@ -179,27 +179,30 @@ func (b *batch) MarshalJSON() ([]byte, error) {
 		buf.WriteByte('[')
 
 		arrCt = 0
-		for _, ev := range b.events[datasetName] {
+		for i, ev := range b.events[datasetName] {
 			eBytes, err := json.Marshal(ev)
 			if err != nil {
 				b.enqueueResponse(Response{
 					Err:      err,
 					Metadata: ev.Metadata,
 				})
+				// nil out the invalid Event so we can line up sent Events with server
+				// responses if needed
+				b.events[datasetName][i] = nil
 				continue
 			}
 			if arrCt > 0 {
 				buf.WriteByte(',')
 			}
 			arrCt++
-			totalEncoded++
+			b.numEncoded++
 			buf.Write(eBytes)
 		}
 		buf.WriteByte(']')
 	}
-	if totalEncoded == 0 {
-		// If the datasetName was written but no Events were, make sure to return an
-		// explicitly empty object
+	if b.numEncoded == 0 {
+		// If no events were written for any dataset in the batch, just make sure to
+		// return an explicitly empty (valid) JSON object
 		return []byte("{}"), nil
 	}
 	buf.WriteByte('}')
@@ -275,47 +278,63 @@ func (b *batch) Fire(notifier muster.Notifier) {
 	}
 	dur := end.Sub(start)
 
-	batchSize := 0
-	for _, events := range b.events {
-		batchSize += len(events) // ... missing out on events dropped during json encoding
-	}
-
 	if err != nil {
 		sd.Increment("send_errors")
-		// if there's a top-level error, we should send an error response down for
-		// every event?? do we actually have examples that read responses and retry?
-		b.enqueueResponse(Response{
-			Duration: dur,
-			Metadata: fmt.Sprintf("batch containing %d events for %d datasets", batchSize, len(b.events)),
-			Err:      err,
-		})
+
+		for _, evs := range b.events {
+			for _, ev := range evs {
+				// Pass the top-level send error down responses channel for each event
+				if ev != nil {
+					b.enqueueResponse(Response{
+						Duration: dur / time.Duration(b.numEncoded),
+						Metadata: ev.Metadata,
+						Err:      err,
+					})
+				}
+			}
+		}
 		return
 	}
 
 	sd.Increment("batches_sent")
-	sd.Count("messages_sent", batchSize)
+	sd.Count("messages_sent", b.numEncoded)
 	defer resp.Body.Close()
 
 	batchResponse := map[string][]Response{}
 	err = json.NewDecoder(resp.Body).Decode(&batchResponse)
 	if err != nil {
 		sd.Increment("response_decode_errors")
-		b.enqueueResponse(Response{
-			Duration: dur,
-			Metadata: fmt.Sprintf("batch containing %d events for %d datasets", batchSize, len(b.events)),
-			Err:      err,
-		})
+		for _, evs := range b.events {
+			for _, ev := range evs {
+				if ev != nil {
+					b.enqueueResponse(Response{
+						Duration: dur,
+						Metadata: ev.Metadata,
+						Err:      err,
+					})
+				}
+			}
+		}
 		return
 	}
 
 	for datasetName, resps := range batchResponse {
 		if events, ok := b.events[datasetName]; ok { // just in case
-			for i, resp := range resps {
-				resp.Duration = dur / time.Duration(batchSize)
-				if i < len(events) { // just in case
-					resp.Metadata = events[i].Metadata
+			// if an Event triggered a JSON error, it wasn't sent to the server and
+			// won't have a returned response... so we have ot be a bit more careful
+			// matching up responses with Events.
+			var eIdx int
+			for _, resp := range resps {
+				resp.Duration = dur / time.Duration(b.numEncoded)
+				for events[eIdx] == nil {
+					eIdx++
 				}
+				if eIdx == len(events) { // just in case
+					break
+				}
+				resp.Metadata = events[eIdx].Metadata
 				b.enqueueResponse(resp)
+				eIdx++
 			}
 		}
 	}
