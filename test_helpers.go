@@ -100,6 +100,6 @@ type fakeNower struct {
 // times it's called in succession
 func (f *fakeNower) Now() time.Time {
 	now := time.Unix(1277132645, 0).Add(time.Second * 10 * time.Duration(f.iter))
-	f.iter += 1
+	f.iter++
 	return now
 }

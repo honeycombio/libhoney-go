@@ -63,6 +63,7 @@ var (
 // expected format is product-name/version, eg "myapp/1.0"
 var UserAgentAddition string
 
+// Config specifies settings for initializing the library.
 type Config struct {
 
 	// WriteKey is the Honeycomb authentication token. If it is specified during
@@ -114,6 +115,8 @@ type Config struct {
 	Transport http.RoundTripper
 }
 
+// Event is used to hold data that can be sent to Honeycomb. It can also
+// specify overrides of the config settings.
 type Event struct {
 	// WriteKey, if set, overrides whatever is found in Config
 	WriteKey string
@@ -135,6 +138,8 @@ type Event struct {
 	fieldHolder
 }
 
+// Builder is used to create templates for new events, specifying default fields
+// and override settings.
 type Builder struct {
 	// WriteKey, if set, overrides whatever is found in Config
 	WriteKey string
@@ -163,8 +168,8 @@ type dynamicField struct {
 	fn   func() interface{}
 }
 
-// To configure default behavior, Init should be called on app initialization
-// and passed a Config struct. Use of package-level functions (e.g. SendNow())
+// Init is called on app initialization and passed a Config struct, which
+// configures default behavior. Use of package-level functions (e.g. SendNow())
 // require that WriteKey and Dataset are defined.
 //
 // Otherwise, if WriteKey and DataSet are absent or a Config is not provided,
@@ -248,7 +253,7 @@ func SendNow(data interface{}) error {
 }
 
 // Responses returns the channel from which the caller can read the responses
-// to sent events
+// to sent events.
 func Responses() chan Response {
 	return responses
 }
@@ -274,8 +279,8 @@ func Add(data interface{}) error {
 	return defaultBuilder.Add(data)
 }
 
-// Creates a new event prepopulated with any Fields present in the global
-// scope.
+// NewEvent creates a new event prepopulated with any Fields present in the
+// global scope.
 func NewEvent() *Event {
 	return defaultBuilder.NewEvent()
 }
