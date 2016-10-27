@@ -301,7 +301,7 @@ func TestAddFunc(t *testing.T) {
 		}
 		str := keys[i]
 		val := vals[i]
-		i += 1
+		i++
 		return str, val, nil
 	}
 
@@ -332,7 +332,7 @@ func TestAddDynamicField(t *testing.T) {
 	i := 0
 	myFn := func() interface{} {
 		v := i
-		i += 1
+		i++
 		return v
 	}
 	AddDynamicField("incrementingInt", myFn)
@@ -391,7 +391,7 @@ func TestBuilderDynFields(t *testing.T) {
 	var i int
 	myIntFn := func() interface{} {
 		v := i
-		i += 1
+		i++
 		return v
 	}
 	strs := []string{
@@ -402,10 +402,10 @@ func TestBuilderDynFields(t *testing.T) {
 	var j int
 	myStrFn := func() interface{} {
 		v := j
-		j += 1
+		j++
 		return strs[v]
 	}
-	var f float64 = 1.0
+	f := 1.0
 	myFloatFn := func() interface{} {
 		v := f
 		f += 1.2
