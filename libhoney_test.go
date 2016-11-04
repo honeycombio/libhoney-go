@@ -524,8 +524,7 @@ func TestSendTestTransport(t *testing.T) {
 	})
 
 	err := SendNow(map[string]interface{}{"foo": 3})
-	tx.Stop()  // flush unsent events
-	tx.Start() // reopen tx.muster channel
+	ForceSendForTests()
 	testOK(t, err)
 	testEquals(t, tr.invoked, true)
 }

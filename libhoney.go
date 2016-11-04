@@ -574,3 +574,8 @@ func (b *Builder) Clone() *Builder {
 	}
 	return newB
 }
+
+func ForceSendForTests() {
+	tx.Stop()  // flush unsent events
+	tx.Start() // reopen tx.muster channel
+}
