@@ -4,6 +4,11 @@
 
 package libhoney
 
+// breaks honeytail tests because leash_test.go assumes all sorts of stuff about
+// how libhoney is going to send requests (eg URL, headers, etc.). Clearly the
+// fault is with honeytail, but we should fix them before (or when) landing
+// this.
+
 import (
 	"bytes"
 	"encoding/json"
@@ -59,7 +64,7 @@ var (
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
-// The default User-Agent is "libhoney-go/1.1.1". If you set this variable, its
+// The default User-Agent is "libhoney-go/<version>". If you set this variable, its
 // contents will be appended to the User-Agent string, separated by a space. The
 // expected format is product-name/version, eg "myapp/1.0"
 var UserAgentAddition string

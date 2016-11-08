@@ -7,10 +7,10 @@ import (
 )
 
 // Response is a record of an event sent. It includes information about sending
-// the event - how long it took, whether it succeeded, and so on. It also has
-// a metadata field that is just a pass through - you add it to an Event and
-// it will be on the Response that correlates with that Event. This allows you
-// to track specific events.
+// the event - how long it took, whether it succeeded, and so on. It also has a
+// metadata field that is just a pass through - populate an Event's Metadata
+// field and what you put there will be on the Response that corresponds to
+// that Event. This allows you to track specific events.
 type Response struct {
 
 	// Err contains any error returned by the httpClient on sending or an error

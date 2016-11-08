@@ -67,7 +67,6 @@ func (t *txDefaultClient) Stop() error {
 }
 
 func (t *txDefaultClient) Add(ev *Event) {
-	// don't block if we can't send events fast enough
 	sd.Gauge("queue_length", len(t.muster.Work))
 	if t.blockOnSend {
 		t.muster.Work <- ev
@@ -121,6 +120,7 @@ func (t *txTestClient) Add(ev *Event) {
 }
 
 type batch struct {
+	// map of dataset name to a list of events destined for that dataset
 	events           map[string][]*Event
 	httpClient       *http.Client
 	blockOnResponses bool
@@ -139,13 +139,15 @@ func (b *batch) Add(ev interface{}) {
 	}
 	e := ev.(*Event)
 	if _, ok := b.events[e.Dataset]; !ok {
+		// make a new event list if we haven't yet seen this dataset in this batch
 		b.events[e.Dataset] = make([]*Event, 0, 1)
 	}
 	b.events[e.Dataset] = append(b.events[e.Dataset], e)
 }
 
-// Provides finer-tuned control over handling serialization errors (by
-// returning individual errors down the responses channel.
+// Provides finer-tuned control over handling serialization errors by returning
+// individual errors down the responses channel. This lets us successfully deal
+// with a batch that has a mix of OK and broken events.
 func (b *batch) MarshalJSON() ([]byte, error) {
 	buf := bytes.Buffer{}
 	buf.WriteByte('{')
@@ -161,7 +163,7 @@ func (b *batch) MarshalJSON() ([]byte, error) {
 	for _, datasetName := range keys {
 		kBytes, err := json.Marshal(datasetName) // lean on encoding/json's stringEncoder
 		if err != nil {
-			// return err for all of the dataset's events
+			// we couldn't encode the dataset name; return err for all of the dataset's events
 			for _, ev := range b.events[datasetName] {
 				b.enqueueResponse(Response{
 					Err:      err,
@@ -170,7 +172,7 @@ func (b *batch) MarshalJSON() ([]byte, error) {
 			}
 			continue
 		}
-		if mapCt > 0 {
+		if mapCt > 0 { // if we're on our 2nd+ dataset with encoded events
 			buf.WriteByte(',')
 		}
 		mapCt++
@@ -187,7 +189,7 @@ func (b *batch) MarshalJSON() ([]byte, error) {
 					Metadata: ev.Metadata,
 				})
 				// nil out the invalid Event so we can line up sent Events with server
-				// responses if needed
+				// responses if needed. don't delete to preserve slice length.
 				b.events[datasetName][i] = nil
 				continue
 			}

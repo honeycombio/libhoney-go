@@ -260,7 +260,7 @@ func TestTxSendBatch(t *testing.T) {
 				APIHost:     "fakeHost",
 				WriteKey:    "written",
 				Dataset:     "ds1",
-				Metadata:    fmt.Sprint("emmetta", i),
+				Metadata:    fmt.Sprint("emmetta", i), // tracking insertion order
 			})
 		}
 		b.Fire(&testNotifier{})
@@ -281,7 +281,7 @@ func TestTxSendBatch(t *testing.T) {
 
 func TestBatchMarshal(t *testing.T) {
 	tsts := []struct {
-		in          map[string][]map[string]interface{}
+		in          map[string][]map[string]interface{} // map of {dataset to list of events}
 		niledEvents map[string][]bool
 		expected    string
 		errMsgs     []string
