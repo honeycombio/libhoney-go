@@ -21,7 +21,7 @@ import (
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
-	version           = "1.1.1"
+	version           = "1.1.2"
 
 	// defaultmaxBatchSize how many events to collect in a batch
 	defaultmaxBatchSize = 50
@@ -425,7 +425,7 @@ func (f *fieldHolder) AddFunc(fn func() (string, interface{}, error)) error {
 	return nil
 }
 
-// Send dispatches the event to be sent to Honeycomb.
+// Send dispatches the event to be sent to Honeycomb, sampling if necessary.
 //
 // If you have sampling enabled
 // (i.e. SampleRate >1), Send will only actually transmit data with a
@@ -443,6 +443,21 @@ func (e *Event) Send() error {
 		sendDroppedResponse(e, "event dropped due to sampling")
 		return nil
 	}
+	return e.SendPresampled()
+}
+
+// SendPresampled dispatches the event to be sent to Honeycomb.
+//
+// Sampling is assumed to have already happened. SendPresampled will dispatch
+// every event handed to it, and pass along the sample rate. Use this instead of
+// Send() when the calling function handles the logic around which events to
+// drop when sampling.
+//
+// SendPresampled inherits the values of required fields from Config. If any
+// required fields are specified in neither Config nor the Event, Send will
+// return an error.  Required fields are APIHost, WriteKey, and Dataset. Values
+// specified in an Event override Config.
+func (e *Event) SendPresampled() error {
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
