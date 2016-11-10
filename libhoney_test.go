@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"runtime"
 	"testing"
@@ -504,6 +505,122 @@ func TestSendTime(t *testing.T) {
 		testEquals(t, len(testTx.datas), i+1)
 		testEquals(t, string(testTx.datas[i]), expected)
 	}
+}
+
+func TestSendPresampledErrors(t *testing.T) {
+	resetPackageVars()
+	Init(Config{})
+	testTx := &txTestClient{}
+	testTx.Start()
+
+	tx = testTx
+
+	tsts := []struct {
+		ev     *Event
+		expErr error
+	}{
+		{
+			ev:     &Event{},
+			expErr: errors.New("No metrics added to event. Won't send empty event."),
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+			},
+			expErr: errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown."),
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost: "foo",
+			},
+			expErr: errors.New("No WriteKey specified. Can't send event."),
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost:  "foo",
+				WriteKey: "bar",
+			},
+			expErr: errors.New("No Dataset for Honeycomb. Can't send datasetless."),
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost:  "foo",
+				WriteKey: "bar",
+				Dataset:  "baz",
+			},
+			expErr: nil,
+		},
+	}
+	for i, tst := range tsts {
+		err := tst.ev.SendPresampled()
+		testEquals(t, err, tst.expErr, fmt.Sprintf("testing expected error from test object %d", i))
+	}
+}
+
+// TestPresampledSendSamplerate verifies that SendPresampled does no sampling
+func TestPresampledSendSamplerate(t *testing.T) {
+	resetPackageVars()
+	Init(Config{})
+	testTx := &txTestClient{}
+	testTx.Start()
+
+	tx = testTx
+
+	ev := &Event{
+		fieldHolder: fieldHolder{
+			data: map[string]interface{}{"a": 1},
+		},
+		APIHost:    "foo",
+		WriteKey:   "bar",
+		Dataset:    "baz",
+		SampleRate: 5,
+	}
+
+	for i := 0; i < 5; i++ {
+		err := ev.SendPresampled()
+		testOK(t, err)
+
+		testEquals(t, len(testTx.datas), i+1)
+		testEquals(t, testTx.sampleRates[i], uint(5))
+	}
+}
+
+// TestSendSamplerate verifies that Send samples
+func TestSendSamplerate(t *testing.T) {
+	resetPackageVars()
+	Init(Config{})
+	testTx := &txTestClient{}
+	testTx.Start()
+	rand.Seed(1)
+
+	tx = testTx
+
+	ev := &Event{
+		fieldHolder: fieldHolder{
+			data: map[string]interface{}{"a": 1},
+		},
+		APIHost:    "foo",
+		WriteKey:   "bar",
+		Dataset:    "baz",
+		SampleRate: 2,
+	}
+	for i := 0; i < 10; i++ {
+		err := ev.Send()
+		testOK(t, err)
+	}
+	testEquals(t, len(testTx.datas), 4, "expected testTx num datas incorrect")
+	testEquals(t, testTx.sampleRates, []uint{uint(2), uint(2), uint(2), uint(2)})
 }
 
 type testTransport struct {
