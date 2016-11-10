@@ -92,8 +92,9 @@ func (t *txDefaultClient) Add(ev *Event) {
 }
 
 type txTestClient struct {
-	Timestamps []time.Time
-	datas      [][]byte
+	Timestamps  []time.Time
+	datas       [][]byte
+	sampleRates []uint
 }
 
 func (t *txTestClient) Start() error {
@@ -113,6 +114,7 @@ func (t *txTestClient) Add(ev *Event) {
 		panic(err)
 	}
 	t.datas = append(t.datas, blob)
+	t.sampleRates = append(t.sampleRates, ev.SampleRate)
 }
 
 type batch struct {
