@@ -143,6 +143,21 @@ func (b *batch) Fire(notifier muster.Notifier) {
 
 // sendRequest sends an individual request to Honeycomb and returns
 func (b *batch) sendRequest(e *Event) {
+	evResp := Response{}
+	defer func() {
+		if b.blockOnResponses {
+			responses <- evResp
+		} else {
+			select {
+			case responses <- evResp:
+			default:
+				if b.testBlocker != nil {
+					b.testBlocker.Done()
+				}
+			}
+		}
+	}()
+
 	start := time.Now().UTC()
 	if b.testNower != nil {
 		start = b.testNower.Now()
@@ -153,6 +168,7 @@ func (b *batch) sendRequest(e *Event) {
 	if err != nil {
 		// TODO add logging or something to raise this error
 		sd.Increment("url_parse_errors")
+		evResp.Err = err
 		return
 	}
 
@@ -160,6 +176,7 @@ func (b *batch) sendRequest(e *Event) {
 	if err != nil {
 		// TODO add logging or something to raise this error
 		sd.Increment("json_marshal_errors")
+		evResp.Err = err
 		return
 	}
 
@@ -183,20 +200,7 @@ func (b *batch) sendRequest(e *Event) {
 		end = b.testNower.Now()
 	}
 	dur := end.Sub(start)
-	evResp := Response{}
-	defer func() {
-		if b.blockOnResponses {
-			responses <- evResp
-		} else {
-			select {
-			case responses <- evResp:
-			default:
-				if b.testBlocker != nil {
-					b.testBlocker.Done()
-				}
-			}
-		}
-	}()
+
 	evResp.Duration = dur
 	evResp.Metadata = e.Metadata
 	if err != nil {
