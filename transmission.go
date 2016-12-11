@@ -148,6 +148,14 @@ func (b *batch) sendRequest(e *Event) {
 		start = b.testNower.Now()
 	}
 	timestamp := e.Timestamp
+
+	url, err := url.Parse(e.APIHost)
+	if err != nil {
+		// TODO add logging or something to raise this error
+		sd.Increment("url_parse_errors")
+		return
+	}
+
 	blob, err := json.Marshal(e.data)
 	if err != nil {
 		// TODO add logging or something to raise this error
@@ -160,7 +168,6 @@ func (b *batch) sendRequest(e *Event) {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
 	}
 
-	url, err := url.Parse(e.APIHost)
 	url.Path = path.Join(url.Path, "/1/events", e.Dataset)
 	req, err := http.NewRequest("POST", url.String(), bytes.NewBuffer(blob))
 	req.Header.Set("User-Agent", userAgent)
