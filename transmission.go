@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,8 +160,9 @@ func (b *batch) sendRequest(e *Event) {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
 	}
 
-	url := fmt.Sprintf("%s/1/events/%s", e.APIHost, e.Dataset)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(blob))
+	url, err := url.Parse(e.APIHost)
+	url.Path = path.Join(url.Path, "/1/events", e.Dataset)
+	req, err := http.NewRequest("POST", url.String(), bytes.NewBuffer(blob))
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("X-Honeycomb-Team", e.WriteKey)
