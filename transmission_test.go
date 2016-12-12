@@ -111,14 +111,13 @@ func TestTxSendRequest(t *testing.T) {
 	e := &Event{
 		fieldHolder: fieldHolder{data: fhData},
 		SampleRate:  4,
-		APIHost:     "fakeHost",
+		APIHost:     "http://fakeHost:8080/",
 		WriteKey:    "written",
 		Dataset:     "settled",
 		Metadata:    "emmetta",
 	}
 	b.sendRequest(e)
-	expectedURL := fmt.Sprintf("%s/1/events/%s", e.APIHost, e.Dataset)
-	testEquals(t, frt.req.URL.String(), expectedURL)
+	testEquals(t, frt.req.URL.String(), "http://fakeHost:8080/1/events/settled")
 	versionedUserAgent := fmt.Sprintf("libhoney-go/%s", version)
 	testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
 	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.WriteKey)
