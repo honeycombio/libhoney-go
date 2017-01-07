@@ -34,7 +34,7 @@ libhoney.SendNow(map[string]interface{}{
 })
 ```
 
-See the `examples` directory for sample code demonstrating how to use events,
+See the [`examples` directory](examples/read_json_log.go) for sample code demonstrating how to use events,
 builders, fields, and dynamic fields.
 
 ## Contributions
