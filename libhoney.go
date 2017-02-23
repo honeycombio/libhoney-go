@@ -173,7 +173,7 @@ type marshallableMap map[string]interface{}
 func (m marshallableMap) MarshalJSON() ([]byte, error) {
 	keys := make([]string, len(m))
 	i := 0
-	for k, _ := range m {
+	for k := range m {
 		keys[i] = k
 		i++
 	}
