@@ -2,6 +2,7 @@ package libhoney
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -10,6 +11,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"gopkg.in/alexcesaro/statsd.v2"
 )
@@ -103,25 +106,17 @@ func TestAddStruct(t *testing.T) {
 		P2: intPtr,
 	}
 	ev.Add(r)
-	testEquals(t, ev.data["F1"], "snth")
-	testEquals(t, ev.data["F2"], 5)
-	testEquals(t, ev.data["effthree"], 6)
-	testEquals(t, ev.data["f5"], 8)
-	testEquals(t, ev.data["P2"], intPtr)
-	_, ok := ev.data["F4"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["h1"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["h3"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["h4"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["P1"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["P3"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["P4"]
-	testEquals(t, ok, false)
+	marshalled, err := json.Marshal(ev.data)
+	assert.Nil(t, err)
+	assert.JSONEq(t,
+		`{
+			"F1": "snth",
+			"F2": 5,
+			"P2": 0,
+			"effthree": 6,
+			"f5": 8
+		}`,
+		string(marshalled))
 }
 
 func TestAddStructPtr(t *testing.T) {
@@ -141,23 +136,18 @@ func TestAddStructPtr(t *testing.T) {
 		P2: intPtr,
 	}
 	ev.Add(&r)
-	testEquals(t, ev.data["F1"], "snth")
-	testEquals(t, ev.data["F2"], 5)
-	testEquals(t, ev.data["effthree"], 6)
-	testEquals(t, ev.data["f5"], 8)
-	testEquals(t, ev.data["P2"], intPtr)
-	_, ok := ev.data["F4"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["h3"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["h4"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["P1"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["P3"]
-	testEquals(t, ok, false)
-	_, ok = ev.data["P4"]
-	testEquals(t, ok, false)
+
+	marshalled, err := json.Marshal(ev.data)
+	assert.Nil(t, err)
+	assert.JSONEq(t,
+		`{
+			"F1": "snth",
+			"F2": 5,
+			"P2": 0,
+			"effthree": 6,
+			"f5": 8
+		}`,
+		string(marshalled))
 }
 
 type Jay struct {
@@ -654,7 +644,9 @@ func TestChannelMembers(t *testing.T) {
 	// adding channels directly using .AddField
 	ev := NewEvent()
 	ev.AddField("intChan", make(chan int))
-	testEquals(t, ev.data["intChan"], nil)
+	marshalled, err := json.Marshal(ev.data)
+	assert.Nil(t, err)
+	assert.JSONEq(t, "{}", string(marshalled))
 
 	// adding a struct with a channel in it to an event
 	type StructWithChan struct {
@@ -671,9 +663,8 @@ func TestChannelMembers(t *testing.T) {
 	ev2 := NewEvent()
 	ev2.Add(structWithChan)
 
-	testEquals(t, ev2.data["A"], 1)
-	testEquals(t, ev2.data["B"], "hello")
-	testEquals(t, ev2.data["C"], nil)
+	marshalled2, err := json.Marshal(ev2.data)
+	assert.JSONEq(t, `{"A": 1, "B": "hello"}`, string(marshalled2))
 
 	// adding a struct with a struct-valued field containing a channel
 	type ChanInField struct {

@@ -172,7 +172,8 @@ func (b *batch) sendRequest(e *Event) {
 		return
 	}
 
-	blob, err := json.Marshal(e.data)
+	buf := new(bytes.Buffer)
+	err = json.NewEncoder(buf).Encode(e.data)
 	if err != nil {
 		// TODO add logging or something to raise this error
 		sd.Increment("json_marshal_errors")
@@ -186,7 +187,7 @@ func (b *batch) sendRequest(e *Event) {
 	}
 
 	url.Path = path.Join(url.Path, "/1/events", e.Dataset)
-	req, err := http.NewRequest("POST", url.String(), bytes.NewBuffer(blob))
+	req, err := http.NewRequest("POST", url.String(), buf)
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("X-Honeycomb-Team", e.WriteKey)

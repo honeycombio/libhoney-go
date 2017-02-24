@@ -5,12 +5,14 @@
 package libhoney
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -159,8 +161,62 @@ type Builder struct {
 }
 
 type fieldHolder struct {
-	data map[string]interface{}
+	data marshallableMap
 	lock sync.Mutex
+}
+
+// Wrapper type for custom JSON serialization: individual values that can't be
+// marshalled (or are null pointers) will be skipped, instead of causing
+// marshalling to raise an error.
+type marshallableMap map[string]interface{}
+
+func (m marshallableMap) MarshalJSON() ([]byte, error) {
+	keys := make([]string, len(m))
+	i := 0
+	for k := range m {
+		keys[i] = k
+		i++
+	}
+	sort.Strings(keys)
+	out := bytes.NewBufferString("{")
+
+	first := true
+	for _, k := range keys {
+		b, ok := maybeMarshalValue(m[k])
+		if ok {
+			if first {
+				first = false
+			} else {
+				out.WriteByte(',')
+			}
+
+			out.WriteByte('"')
+			out.Write([]byte(k))
+			out.WriteByte('"')
+			out.WriteByte(':')
+			out.Write(b)
+		}
+	}
+	out.WriteByte('}')
+	return out.Bytes(), nil
+}
+
+func maybeMarshalValue(v interface{}) ([]byte, bool) {
+	if v == nil {
+		return nil, false
+	}
+	val := reflect.ValueOf(v)
+	kind := val.Type().Kind()
+	for _, ptrKind := range ptrKinds {
+		if kind == ptrKind && val.IsNil() {
+			return nil, false
+		}
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
 }
 
 type dynamicField struct {
@@ -290,41 +346,7 @@ func NewEvent() *Event {
 func (f *fieldHolder) AddField(key string, val interface{}) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-	// run a sanity check on data, transparently drop if it fails.
-	if validateData(val) {
-		f.data[key] = val
-	}
-}
-
-// validateData runs some checks on the data and returns false if it's bad data
-// and should be skipped
-func validateData(val interface{}) bool {
-	if val == nil {
-		return false
-	}
-	// if we can't json encode the value, we should skip it.
-	// TODO this is probably slow. Decide whether it's unacceptably slow.
-	_, err := json.Marshal(val)
-	if err != nil {
-		return false
-	}
-	return true
-}
-
-func validateValue(val reflect.Value) bool {
-	if val.Type().Kind() == reflect.Chan {
-		return false
-	}
-	kind := val.Type().Kind()
-	for _, ptrKind := range ptrKinds {
-		if kind == ptrKind && val.IsNil() {
-			return false
-		}
-	}
-	if validateData(val.Interface()) == false {
-		return false
-	}
-	return true
+	f.data[key] = val
 }
 
 // Add adds a complex data type to the event or builder on which it's called.
@@ -376,9 +398,7 @@ func (f *fieldHolder) addStruct(s interface{}) error {
 			fName = fieldInfo.Name
 		}
 
-		if validateValue(sVal.Field(i)) {
-			f.data[fName] = sVal.Field(i).Interface()
-		}
+		f.data[fName] = sVal.Field(i).Interface()
 	}
 	return nil
 }
@@ -403,9 +423,7 @@ func (f *fieldHolder) addMap(m interface{}) error {
 		default:
 			return fmt.Errorf("failed to add map: key type %s unaccepted", key.Type().Kind())
 		}
-		if validateValue(mVal.MapIndex(key)) {
-			f.data[keyStr] = mVal.MapIndex(key).Interface()
-		}
+		f.data[keyStr] = mVal.MapIndex(key).Interface()
 	}
 	return nil
 }

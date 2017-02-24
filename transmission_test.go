@@ -122,7 +122,7 @@ func TestTxSendRequest(t *testing.T) {
 	testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
 	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.WriteKey)
 	testEquals(t, frt.req.Header.Get("X-Honeycomb-SampleRate"), "4")
-	testEquals(t, frt.reqBody, `{"foo":"bar"}`)
+	testEquals(t, frt.reqBody, "{\"foo\":\"bar\"}\n")
 
 	rsp := testGetResponse(t, responses)
 	testEquals(t, rsp.Duration, time.Second*10)
