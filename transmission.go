@@ -165,131 +165,134 @@ func (b *batchAgg) enqueueResponse(resp Response) {
 func (b *batchAgg) Fire(notifier muster.Notifier) {
 	defer notifier.Done()
 
+	// send each batchKey's collection of event as a POST to /1/batch/<dataset>
+	// we don't need the batch key anymore; it's done its sorting job
+	for _, events := range b.batches {
+		b.fireBatch(events)
+	}
+}
+
+func (b *batchAgg) fireBatch(events []*Event) {
+	start := time.Now().UTC()
+	if b.testNower != nil {
+		start = b.testNower.Now()
+	}
+	if len(events) == 0 {
+		// we managed to create a batch key with no events. odd. move on.
+		return
+	}
+	encEvs, numEncoded := b.encodeBatch(events)
+	// if we failed to encode any events skip this batch
+	if numEncoded == 0 {
+		return
+	}
+	// get some attributes common to this entire batch up front
+	apiHost := events[0].APIHost
+	writeKey := events[0].WriteKey
+	dataset := events[0].Dataset
+
 	// sigh. dislike
 	userAgent := fmt.Sprintf("libhoney-go/%s", version)
 	if UserAgentAddition != "" {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
 	}
 
-	// send each batchKey's collection of event as a POST to /1/batch/<dataset>
-	// we don't need the batch key anymore; it's done its sorting job
-	for _, events := range b.batches {
-		start := time.Now().UTC()
-		if b.testNower != nil {
-			start = b.testNower.Now()
-		}
-		if len(events) == 0 {
-			// we managed to create a batch key with no events. odd. move on.
-			continue
-		}
-		encEvs, numEncoded := b.encodeBatch(events)
-		// if we failed to encode any events (aka the returned encEvs is just "[]"),
-		// skip this batch
-		if len(encEvs) <= 2 {
-			continue
-		}
-		// get some attributes common to this entire batch up front
-		apiHost := events[0].APIHost
-		writeKey := events[0].WriteKey
-		dataset := events[0].Dataset
-
-		// build the HTTP request
-		reqBody, gzipped := buildReqReader(encEvs)
-		url, err := url.Parse(apiHost)
-		if err != nil {
-			end := time.Now().UTC()
-			if b.testNower != nil {
-				end = b.testNower.Now()
-			}
-			dur := end.Sub(start)
-			sd.Increment("send_errors")
-			for _, ev := range events {
-				// Pass the parsing error down responses channel for each event that
-				// didn't already error during encoding
-				if ev != nil {
-					b.enqueueResponse(Response{
-						Duration: dur / time.Duration(numEncoded),
-						Metadata: ev.Metadata,
-						Err:      err,
-					})
-				}
-			}
-			continue
-		}
-		url.Path = path.Join(url.Path, "/1/batch", dataset)
-		req, err := http.NewRequest("POST", url.String(), reqBody)
-		req.Header.Set("Content-Type", "application/json")
-		if gzipped {
-			req.Header.Set("Content-Encoding", "gzip")
-		}
-		req.Header.Set("User-Agent", userAgent)
-		req.Header.Add("X-Honeycomb-Team", writeKey)
-		// send off batch!
-		resp, err := b.httpClient.Do(req)
+	// build the HTTP request
+	reqBody, gzipped := buildReqReader(encEvs)
+	url, err := url.Parse(apiHost)
+	if err != nil {
 		end := time.Now().UTC()
 		if b.testNower != nil {
 			end = b.testNower.Now()
 		}
 		dur := end.Sub(start)
-
-		// if the entire HTTP POST failed, send a failed response for every event
-		if err != nil {
-			sd.Increment("send_errors")
-			for _, ev := range events {
-				// Pass the top-level send error down responses channel for each event
-				// that didn't already error during encoding
-				if ev != nil {
-					b.enqueueResponse(Response{
-						Duration: dur / time.Duration(numEncoded),
-						Metadata: ev.Metadata,
-						Err:      err,
-					})
-				}
+		sd.Increment("send_errors")
+		for _, ev := range events {
+			// Pass the parsing error down responses channel for each event that
+			// didn't already error during encoding
+			if ev != nil {
+				b.enqueueResponse(Response{
+					Duration: dur / time.Duration(numEncoded),
+					Metadata: ev.Metadata,
+					Err:      err,
+				})
 			}
-			// the POST failed so we're done with this batch key's worth of events
-			continue
 		}
+		return
+	}
+	url.Path = path.Join(url.Path, "/1/batch", dataset)
+	req, err := http.NewRequest("POST", url.String(), reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	if gzipped {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Add("X-Honeycomb-Team", writeKey)
+	// send off batch!
+	resp, err := b.httpClient.Do(req)
+	end := time.Now().UTC()
+	if b.testNower != nil {
+		end = b.testNower.Now()
+	}
+	dur := end.Sub(start)
 
-		// ok, the POST succeeded, let's process each individual response
-		sd.Increment("batches_sent")
-		sd.Count("messages_sent", numEncoded)
-		defer resp.Body.Close()
-
-		// decode the responses
-		batchResponses := []Response{}
-		err = json.NewDecoder(resp.Body).Decode(&batchResponses)
-		if err != nil {
-			// if we can't decode the responses, just error out all of them
-			sd.Increment("response_decode_errors")
-			for _, ev := range events {
-				if ev != nil {
-					b.enqueueResponse(Response{
-						Duration: dur,
-						Metadata: ev.Metadata,
-						Err:      err,
-					})
-				}
+	// if the entire HTTP POST failed, send a failed response for every event
+	if err != nil {
+		sd.Increment("send_errors")
+		for _, ev := range events {
+			// Pass the top-level send error down responses channel for each event
+			// that didn't already error during encoding
+			if ev != nil {
+				b.enqueueResponse(Response{
+					Duration: dur / time.Duration(numEncoded),
+					Metadata: ev.Metadata,
+					Err:      err,
+				})
 			}
-			continue
 		}
+		// the POST failed so we're done with this batch key's worth of events
+		return
+	}
 
-		// Go through the responses and send them down the queue. If an Event
-		// triggered a JSON error, it wasn't sent to the server and won't have a
-		// returned response... so we have to be a bit more careful matching up
-		// responses with Events.
-		var eIdx int
-		for _, resp := range batchResponses {
-			resp.Duration = dur / time.Duration(numEncoded)
-			for events[eIdx] == nil {
-				eIdx++
+	// ok, the POST succeeded, let's process each individual response
+	sd.Increment("batches_sent")
+	sd.Count("messages_sent", numEncoded)
+	defer resp.Body.Close()
+
+	// decode the responses
+	batchResponses := []Response{}
+	err = json.NewDecoder(resp.Body).Decode(&batchResponses)
+	if err != nil {
+		// if we can't decode the responses, just error out all of them
+		sd.Increment("response_decode_errors")
+		for _, ev := range events {
+			if ev != nil {
+				b.enqueueResponse(Response{
+					Duration: dur,
+					Metadata: ev.Metadata,
+					Err:      err,
+				})
 			}
-			if eIdx == len(events) { // just in case
-				break
-			}
-			resp.Metadata = events[eIdx].Metadata
-			b.enqueueResponse(resp)
+		}
+		return
+	}
+
+	// Go through the responses and send them down the queue. If an Event
+	// triggered a JSON error, it wasn't sent to the server and won't have a
+	// returned response... so we have to be a bit more careful matching up
+	// responses with Events.
+	var eIdx int
+	for _, resp := range batchResponses {
+		resp.Duration = dur / time.Duration(numEncoded)
+		for events[eIdx] == nil {
 			eIdx++
 		}
+		if eIdx == len(events) { // just in case
+			break
+		}
+		resp.Metadata = events[eIdx].Metadata
+		b.enqueueResponse(resp)
+		eIdx++
 	}
 }
 
