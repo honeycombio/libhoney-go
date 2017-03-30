@@ -116,7 +116,7 @@ func TestTxSendSingle(t *testing.T) {
 	e := &Event{
 		fieldHolder: fieldHolder{data: fhData},
 		SampleRate:  4,
-		APIHost:     "http://fakeHost:8080/",
+		APIHost:     "http://fakeHost:8080",
 		WriteKey:    "written",
 		Dataset:     "ds1",
 		Metadata:    "emmetta",
