@@ -192,7 +192,6 @@ func (b *batchAgg) Fire(notifier muster.Notifier) {
 		if len(encEvs) <= 2 {
 			continue
 		}
-		fmt.Printf("%d encoded events:\n%s\n", numEncoded, encEvs)
 		// get some attributes common to this entire batch up front
 		apiHost := events[0].APIHost
 		writeKey := events[0].WriteKey
