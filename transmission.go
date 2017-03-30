@@ -53,8 +53,8 @@ func (t *txDefaultClient) Start() error {
 	t.muster.MaxConcurrentBatches = t.maxConcurrentBatches
 	t.muster.PendingWorkCapacity = t.pendingWorkCapacity
 	t.muster.BatchMaker = func() muster.Batch {
-		return &batch{
-			events:           map[string][]*Event{},
+		return &batchAgg{
+			batches:          map[string][]*Event{},
 			httpClient:       &http.Client{Transport: t.transport},
 			blockOnResponses: t.blockOnResponses,
 		}
@@ -119,99 +119,41 @@ func (t *txTestClient) Add(ev *Event) {
 	t.sampleRates = append(t.sampleRates, ev.SampleRate)
 }
 
-type batch struct {
-	// map of dataset name to a list of events destined for that dataset
-	events           map[string][]*Event
+// batchAgg is a batch aggregator - it's actually collecting what will
+// eventually be one or more batches sent to the /1/batch/dataset endpoint.
+type batchAgg struct {
+	// map of batch key to a list of events destined for that batch
+	batches          map[string][]*Event
 	httpClient       *http.Client
 	blockOnResponses bool
-	numEncoded       int
+	// numEncoded       int
 
 	// allows manipulation of the value of "now" for testing
 	testNower   nower
 	testBlocker *sync.WaitGroup
 }
 
-func (b *batch) Add(ev interface{}) {
+// batch is a collection of events that will all be POSTed as one HTTP call
+// type batch []*Event
+
+func (b *batchAgg) Add(ev interface{}) {
 	// from muster godoc: "The Batch does not need to be safe for concurrent
 	// access; synchronization will be handled by the Client."
-	if b.events == nil {
-		b.events = map[string][]*Event{}
+	if b.batches == nil {
+		b.batches = map[string][]*Event{}
 	}
 	e := ev.(*Event)
-	if _, ok := b.events[e.Dataset]; !ok {
-		// make a new event list if we haven't yet seen this dataset in this batch
-		b.events[e.Dataset] = make([]*Event, 0, 1)
+	// collect separate buckets of events to send based on the trio of api/wk/ds
+	// if all three of those match it's safe to send all the events in one batch
+	key := fmt.Sprintf("%s_%s_%s", e.APIHost, e.WriteKey, e.Dataset)
+	if _, ok := b.batches[key]; !ok {
+		// make a new event list if we haven't yet seen this key in this batch
+		b.batches[key] = make([]*Event, 0, 1)
 	}
-	b.events[e.Dataset] = append(b.events[e.Dataset], e)
+	b.batches[key] = append(b.batches[key], e)
 }
 
-// Provides finer-tuned control over handling serialization errors by returning
-// individual errors down the responses channel. This lets us successfully deal
-// with a batch that has a mix of OK and broken events.
-func (b *batch) MarshalJSON() ([]byte, error) {
-	buf := bytes.Buffer{}
-	buf.WriteByte('{')
-
-	keys := make([]string, 0, len(b.events))
-	for datasetName := range b.events {
-		keys = append(keys, datasetName)
-	}
-	sort.Strings(keys) // parity with encoding/json's mapEncoder
-
-	var mapCt int
-	var arrCt int
-	for _, datasetName := range keys {
-		kBytes, err := json.Marshal(datasetName) // lean on encoding/json's stringEncoder
-		if err != nil {
-			// we couldn't encode the dataset name; return err for all of the dataset's events
-			for _, ev := range b.events[datasetName] {
-				b.enqueueResponse(Response{
-					Err:      err,
-					Metadata: ev.Metadata,
-				})
-			}
-			continue
-		}
-		if mapCt > 0 { // if we're on our 2nd+ dataset with encoded events
-			buf.WriteByte(',')
-		}
-		mapCt++
-		buf.Write(kBytes)
-		buf.WriteByte(':')
-		buf.WriteByte('[')
-
-		arrCt = 0
-		for i, ev := range b.events[datasetName] {
-			eBytes, err := json.Marshal(ev)
-			if err != nil {
-				b.enqueueResponse(Response{
-					Err:      err,
-					Metadata: ev.Metadata,
-				})
-				// nil out the invalid Event so we can line up sent Events with server
-				// responses if needed. don't delete to preserve slice length.
-				b.events[datasetName][i] = nil
-				continue
-			}
-			if arrCt > 0 {
-				buf.WriteByte(',')
-			}
-			arrCt++
-			b.numEncoded++
-			buf.Write(eBytes)
-		}
-		buf.WriteByte(']')
-	}
-	if b.numEncoded == 0 {
-		// If no events were written for any dataset in the batch, just make sure to
-		// return an explicitly empty (valid) JSON object
-		return []byte("{}"), nil
-	}
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
-}
-
-func (b *batch) enqueueResponse(resp Response) {
+func (b *batchAgg) enqueueResponse(resp Response) {
 	if b.blockOnResponses {
 		responses <- resp
 	} else {
@@ -225,23 +167,8 @@ func (b *batch) enqueueResponse(resp Response) {
 	}
 }
 
-func (b *batch) Fire(notifier muster.Notifier) {
+func (b *batchAgg) Fire(notifier muster.Notifier) {
 	defer notifier.Done()
-
-	start := time.Now().UTC()
-	if b.testNower != nil {
-		start = b.testNower.Now()
-	}
-
-	blob, _ := json.Marshal(b) // always returns nil err
-
-	// If json.Marshal returns the shortest valid JSON object, we don't have
-	// anything worth sending to Honeycomb (we may have failed to enqueue any
-	// events, for any dataset). Don't bother enqueueing a Response;
-	// batch.MarshalJSON likely already did that for us.
-	if len(blob) <= 2 {
-		return
-	}
 
 	// sigh. dislike
 	userAgent := fmt.Sprintf("libhoney-go/%s", version)
@@ -249,65 +176,79 @@ func (b *batch) Fire(notifier muster.Notifier) {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
 	}
 
-	// FML. technically we have nothing that constrains events to a single APIHost
-	// or a single WriteKey per batch. ugggg ben suggestions?
-	var apiHost string
-	var writeKey string
-	for _, events := range b.events {
-		if len(events) < 1 {
+	// send each batchKey's collection of event as a POST to /1/batch/<dataset>
+	// we don't need the batch key anymore; it's done its sorting job
+	for _, events := range b.batches {
+		start := time.Now().UTC()
+		if b.testNower != nil {
+			start = b.testNower.Now()
+		}
+		if len(events) == 0 {
+			// we managed to create a batch key with no events. odd. move on.
 			continue
 		}
-		apiHost = events[0].APIHost
-		writeKey = events[0].WriteKey
-		break
-	}
+		encEvs, numEncoded := b.encodeBatch(events)
+		// if we failed to encode any events (aka the returned bytslice is just []),
+		// skip this batch
+		if len(encEvs) <= 2 {
+			continue
+		}
+		fmt.Printf("%d encoded events:\n%s\n", numEncoded, encEvs)
+		// get some attributes common to this entire batch up front
+		apiHost := events[0].APIHost
+		writeKey := events[0].WriteKey
+		dataset := events[0].Dataset
 
-	reqBody, gzipped := buildReqReader(blob)
-	url := fmt.Sprintf("%s/1/batch", apiHost)
-	req, err := http.NewRequest("POST", url, reqBody)
-	req.Header.Set("Content-Type", "application/json")
-	if gzipped {
-		req.Header.Set("Content-Encoding", "gzip")
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Add("X-Honeycomb-Team", writeKey)
+		// build the HTTP request
+		reqBody, gzipped := buildReqReader(encEvs)
+		url, _ := url.Parse(apiHost)
+		// TODO check for url parsing error
+		url.Path = path.Join(url.Path, "/1/batch", dataset)
+		req, err := http.NewRequest("POST", url.String(), reqBody)
+		req.Header.Set("Content-Type", "application/json")
+		if gzipped {
+			req.Header.Set("Content-Encoding", "gzip")
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Add("X-Honeycomb-Team", writeKey)
+		// send off batch!
+		resp, err := b.httpClient.Do(req)
+		end := time.Now().UTC()
+		if b.testNower != nil {
+			end = b.testNower.Now()
+		}
+		dur := end.Sub(start)
 
-	// send off batch!
-	resp, err := b.httpClient.Do(req)
-	end := time.Now().UTC()
-	if b.testNower != nil {
-		end = b.testNower.Now()
-	}
-	dur := end.Sub(start)
-
-	if err != nil {
-		sd.Increment("send_errors")
-
-		for _, evs := range b.events {
-			for _, ev := range evs {
+		// if the entire HTTP POST failed, send a failed response for every event
+		if err != nil {
+			sd.Increment("send_errors")
+			for _, ev := range events {
 				// Pass the top-level send error down responses channel for each event
+				// that didn't already error during encoding
 				if ev != nil {
 					b.enqueueResponse(Response{
-						Duration: dur / time.Duration(b.numEncoded),
+						Duration: dur / time.Duration(numEncoded),
 						Metadata: ev.Metadata,
 						Err:      err,
 					})
 				}
 			}
+			// the POST failed so we're done with this batch key's worth of events
+			continue
 		}
-		return
-	}
 
-	sd.Increment("batches_sent")
-	sd.Count("messages_sent", b.numEncoded)
-	defer resp.Body.Close()
+		// ok, the POST succeeded, let's process each individual response
+		sd.Increment("batches_sent")
+		sd.Count("messages_sent", numEncoded)
+		defer resp.Body.Close()
 
-	batchResponse := map[string][]Response{}
-	err = json.NewDecoder(resp.Body).Decode(&batchResponse)
-	if err != nil {
-		sd.Increment("response_decode_errors")
-		for _, evs := range b.events {
-			for _, ev := range evs {
+		// decode the responses
+		batchResponses := []Response{}
+		err = json.NewDecoder(resp.Body).Decode(&batchResponses)
+		if err != nil {
+			// if we can't decode the responses, just error out all of them
+			sd.Increment("response_decode_errors")
+			for _, ev := range events {
 				if ev != nil {
 					b.enqueueResponse(Response{
 						Duration: dur,
@@ -316,30 +257,60 @@ func (b *batch) Fire(notifier muster.Notifier) {
 					})
 				}
 			}
+			continue
 		}
-		return
-	}
 
-	for datasetName, resps := range batchResponse {
-		if events, ok := b.events[datasetName]; ok { // just in case
-			// if an Event triggered a JSON error, it wasn't sent to the server and
-			// won't have a returned response... so we have ot be a bit more careful
-			// matching up responses with Events.
-			var eIdx int
-			for _, resp := range resps {
-				resp.Duration = dur / time.Duration(b.numEncoded)
-				for events[eIdx] == nil {
-					eIdx++
-				}
-				if eIdx == len(events) { // just in case
-					break
-				}
-				resp.Metadata = events[eIdx].Metadata
-				b.enqueueResponse(resp)
+		// Go through the responses and send them down the queue. If an Event
+		// triggered a JSON error, it wasn't sent to the server and won't have a
+		// returned response... so we have to be a bit more careful matching up
+		// responses with Events.
+		var eIdx int
+		for _, resp := range batchResponses {
+			resp.Duration = dur / time.Duration(numEncoded)
+			for events[eIdx] == nil {
 				eIdx++
 			}
+			if eIdx == len(events) { // just in case
+				break
+			}
+			resp.Metadata = events[eIdx].Metadata
+			b.enqueueResponse(resp)
+			eIdx++
 		}
 	}
+}
+
+// create the JSON for this event list manually so that we can send
+// responses down the response queue for any that fail to marshal
+func (b *batchAgg) encodeBatch(events []*Event) ([]byte, int) {
+	// track first vs. rest events for commas
+	first := true
+	// track how many we successfully encode for later bookkeeping
+	var numEncoded int
+	buf := bytes.Buffer{}
+	buf.WriteByte('[')
+	// ok, we've got our array, let's populate it with JSON events
+	for i, ev := range events {
+		if !first {
+			buf.WriteByte(',')
+		}
+		first = false
+		evByt, err := json.Marshal(ev)
+		if err != nil {
+			b.enqueueResponse(Response{
+				Err:      err,
+				Metadata: ev.Metadata,
+			})
+			// nil out the invalid Event so we can line up sent Events with server
+			// responses if needed. don't delete to preserve slice length.
+			events[i] = nil
+			continue
+		}
+		buf.Write(evByt)
+		numEncoded++
+	}
+	buf.WriteByte(']')
+	return buf.Bytes(), numEncoded
 }
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
