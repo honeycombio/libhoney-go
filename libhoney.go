@@ -364,7 +364,8 @@ func NewEvent() *Event {
 }
 
 // AddField adds an individual metric to the event or builder on which it is
-// called.
+// called. Note that if you add a value that cannot be serialized to JSON (eg a
+// function or channel), the event will fail to send.
 func (f *fieldHolder) AddField(key string, val interface{}) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
