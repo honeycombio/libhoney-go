@@ -342,7 +342,7 @@ func TestTxSendBatchMultiple(t *testing.T) {
 		in           map[string][]map[string]interface{} // datas
 		expReqBodies map[string]string
 		respBodies   map[string]string // JSON from server
-		expected     []Response
+		expected     map[string]Response
 	}{
 		{
 			map[string][]map[string]interface{}{
@@ -372,16 +372,16 @@ func TestTxSendBatchMultiple(t *testing.T) {
 				"ah1,wk1,ds2": `[{"status":202},{"status":202},{"status":429,"error":"bratelimited"}]`,
 				"ah3,wk3,ds3": `[{"status":200},{"status":201},{"status":202}]`,
 			},
-			[]Response{
-				{StatusCode: 202, Metadata: "emmetta0"},
-				{StatusCode: 203, Metadata: "emmetta1"},
-				{StatusCode: 204, Metadata: "emmetta2"},
-				{StatusCode: 202, Metadata: "emmetta3"},
-				{StatusCode: 202, Metadata: "emmetta4"},
-				{Err: errors.New("bratelimited"), StatusCode: 429, Metadata: "emmetta5"},
-				{StatusCode: 200, Metadata: "emmetta6"},
-				{StatusCode: 201, Metadata: "emmetta7"},
-				{StatusCode: 202, Metadata: "emmetta8"},
+			map[string]Response{
+				"emmetta0": {StatusCode: 202, Metadata: "emmetta0"},
+				"emmetta1": {StatusCode: 203, Metadata: "emmetta1"},
+				"emmetta2": {StatusCode: 204, Metadata: "emmetta2"},
+				"emmetta3": {StatusCode: 202, Metadata: "emmetta3"},
+				"emmetta4": {StatusCode: 202, Metadata: "emmetta4"},
+				"emmetta5": {Err: errors.New("bratelimited"), StatusCode: 429, Metadata: "emmetta5"},
+				"emmetta6": {StatusCode: 200, Metadata: "emmetta6"},
+				"emmetta7": {StatusCode: 201, Metadata: "emmetta7"},
+				"emmetta8": {StatusCode: 202, Metadata: "emmetta8"},
 			},
 		},
 	}
@@ -399,7 +399,7 @@ func TestTxSendBatchMultiple(t *testing.T) {
 		ffrt.respBodies = tt.respBodies
 		// insert events in sorted order to check responses
 		keys := []string{}
-		for k, _ := range tt.in {
+		for k := range tt.in {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
@@ -418,16 +418,25 @@ func TestTxSendBatchMultiple(t *testing.T) {
 			}
 		}
 		b.Fire(&testNotifier{})
-		for _, expResp := range tt.expected {
+		// go through the right number of expected responses, look for matches
+		for range tt.expected {
+			var found bool
 			resp := testGetResponse(t, responses)
-			testEquals(t, resp.StatusCode, expResp.StatusCode)
-			testEquals(t, resp.Metadata, expResp.Metadata)
-			if expResp.Err != nil {
-				if !strings.Contains(resp.Err.Error(), expResp.Err.Error()) {
-					t.Errorf("expected error to contain '%s', got: '%s'", expResp.Err.Error(), resp.Err.Error())
+			for meta, expResp := range tt.expected {
+				if meta == resp.Metadata {
+					found = true
+					testEquals(t, resp.StatusCode, expResp.StatusCode)
+					if expResp.Err != nil {
+						if !strings.Contains(resp.Err.Error(), expResp.Err.Error()) {
+							t.Errorf("expected error to contain '%s', got: '%s'", expResp.Err.Error(), resp.Err.Error())
+						}
+					} else {
+						testEquals(t, resp.Err, expResp.Err)
+					}
 				}
-			} else {
-				testEquals(t, resp.Err, expResp.Err)
+			}
+			if !found {
+				t.Errorf("couldn't find expected response for %+v\n", resp)
 			}
 		}
 	}
