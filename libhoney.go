@@ -20,6 +20,10 @@ import (
 	"gopkg.in/alexcesaro/statsd.v2"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
@@ -256,7 +260,6 @@ type dynamicField struct {
 //
 // Make sure to call Close() to flush buffers.
 func Init(config Config) error {
-	rand.Seed(time.Now().UnixNano())
 	// Default sample rate should be 1. 0 is invalid.
 	if config.SampleRate == 0 {
 		config.SampleRate = defaultSampleRate
