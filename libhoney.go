@@ -23,7 +23,7 @@ import (
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
-	version           = "1.1.2"
+	version           = "1.2.0"
 
 	// defaultmaxBatchSize how many events to collect in a batch
 	defaultmaxBatchSize = 50
@@ -35,12 +35,11 @@ const (
 	defaultpendingWorkCapacity = 10000
 )
 
-// for validation
 var (
 	ptrKinds = []reflect.Kind{reflect.Ptr, reflect.Slice, reflect.Map}
 )
 
-// globals for singleton-like behavior
+// globals to support default/singleton-like behavior
 var (
 	tx     txClient
 	txOnce sync.Once
@@ -60,7 +59,7 @@ var (
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
-// The default User-Agent is "libhoney-go/1.1.1". If you set this variable, its
+// The default User-Agent is "libhoney-go/<version>". If you set this variable, its
 // contents will be appended to the User-Agent string, separated by a space. The
 // expected format is product-name/version, eg "myapp/1.0"
 var UserAgentAddition string
@@ -138,6 +137,28 @@ type Event struct {
 
 	// fieldHolder contains fields (and methods) common to both events and builders
 	fieldHolder
+}
+
+// Marshaling an Event for batching up to the Honeycomb servers. Omits fields
+// that aren't specific to this particular event, and allows for behavior like
+// omitempty'ing a zero'ed out time.Time.
+func (e Event) MarshalJSON() ([]byte, error) {
+	tPointer := &(e.Timestamp)
+	if e.Timestamp.IsZero() {
+		tPointer = nil
+	}
+
+	// don't include sample rate if it's 1; this is the default
+	sampleRate := e.SampleRate
+	if sampleRate == 1 {
+		sampleRate = 0
+	}
+
+	return json.Marshal(struct {
+		Data       map[string]interface{} `json:"data"`
+		SampleRate uint                   `json:"samplerate,omitempty"`
+		Timestamp  *time.Time             `json:"time,omitempty"`
+	}{e.data, sampleRate, tPointer})
 }
 
 // Builder is used to create templates for new events, specifying default fields
@@ -235,6 +256,7 @@ type dynamicField struct {
 //
 // Make sure to call Close() to flush buffers.
 func Init(config Config) error {
+	rand.Seed(time.Now().UnixNano())
 	// Default sample rate should be 1. 0 is invalid.
 	if config.SampleRate == 0 {
 		config.SampleRate = defaultSampleRate
@@ -342,7 +364,8 @@ func NewEvent() *Event {
 }
 
 // AddField adds an individual metric to the event or builder on which it is
-// called.
+// called. Note that if you add a value that cannot be serialized to JSON (eg a
+// function or channel), the event will fail to send.
 func (f *fieldHolder) AddField(key string, val interface{}) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
