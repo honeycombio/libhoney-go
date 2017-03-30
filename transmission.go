@@ -145,10 +145,6 @@ func (b *batchAgg) Add(ev interface{}) {
 	// collect separate buckets of events to send based on the trio of api/wk/ds
 	// if all three of those match it's safe to send all the events in one batch
 	key := fmt.Sprintf("%s_%s_%s", e.APIHost, e.WriteKey, e.Dataset)
-	if _, ok := b.batches[key]; !ok {
-		// make a new event list if we haven't yet seen this key in this batch
-		b.batches[key] = make([]*Event, 0, 1)
-	}
 	b.batches[key] = append(b.batches[key], e)
 }
 
@@ -187,7 +183,7 @@ func (b *batchAgg) Fire(notifier muster.Notifier) {
 			continue
 		}
 		encEvs, numEncoded := b.encodeBatch(events)
-		// if we failed to encode any events (aka the returned bytslice is just []),
+		// if we failed to encode any events (aka the returned encEvs is just "[]"),
 		// skip this batch
 		if len(encEvs) <= 2 {
 			continue
@@ -199,8 +195,27 @@ func (b *batchAgg) Fire(notifier muster.Notifier) {
 
 		// build the HTTP request
 		reqBody, gzipped := buildReqReader(encEvs)
-		url, _ := url.Parse(apiHost)
-		// TODO check for url parsing error
+		url, err := url.Parse(apiHost)
+		if err != nil {
+			end := time.Now().UTC()
+			if b.testNower != nil {
+				end = b.testNower.Now()
+			}
+			dur := end.Sub(start)
+			sd.Increment("send_errors")
+			for _, ev := range events {
+				// Pass the parsing error down responses channel for each event that
+				// didn't already error during encoding
+				if ev != nil {
+					b.enqueueResponse(Response{
+						Duration: dur / time.Duration(numEncoded),
+						Metadata: ev.Metadata,
+						Err:      err,
+					})
+				}
+			}
+			continue
+		}
 		url.Path = path.Join(url.Path, "/1/batch", dataset)
 		req, err := http.NewRequest("POST", url.String(), reqBody)
 		req.Header.Set("Content-Type", "application/json")

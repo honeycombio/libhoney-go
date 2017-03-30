@@ -4,11 +4,6 @@
 
 package libhoney
 
-// breaks honeytail tests because leash_test.go assumes all sorts of stuff about
-// how libhoney is going to send requests (eg URL, headers, etc.). Clearly the
-// fault is with honeytail, but we should fix them before (or when) landing
-// this.
-
 import (
 	"bytes"
 	"encoding/json"

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -204,13 +206,12 @@ func TestTxSendSingle(t *testing.T) {
 	testOK(t, rsp.Err)
 }
 
-// test the details of handling batch behavior
-func TestTxSendBatch(t *testing.T) {
+// test the details of handling batch behavior on a batch with a single dataset
+func TestTxSendBatchSingleDataset(t *testing.T) {
 	tsts := []struct {
-		in         []map[string]interface{} // datas
-		expReqBody string
-		response   string // JSON from server
-		expected   []Response
+		in       []map[string]interface{} // datas
+		response string                   // JSON from server
+		expected []Response
 	}{
 		{
 			[]map[string]interface{}{
@@ -218,7 +219,6 @@ func TestTxSendBatch(t *testing.T) {
 				{"b": 2, "bb": 22},
 				{"c": 3.1},
 			},
-			`[{"data":{"a":1}},{"data":{"b":2,"bb":22}},{"data":{"c":3.1}}]`,
 			`[{"status":202},{"status":202},{"status":429,"error":"bratelimited"}]`,
 			[]Response{
 				{StatusCode: 202, Metadata: "emmetta0"},
@@ -232,7 +232,6 @@ func TestTxSendBatch(t *testing.T) {
 				{"b": func() {}},
 				{"c": 3.1},
 			},
-			`[{"data":{"a":1}},{"data":{"c":3.1}}]`,
 			`[{"status":202},{"status":202}]`,
 			[]Response{ // specific order!
 				{Err: errors.New("unsupported type"), Metadata: "emmetta1"},
@@ -277,95 +276,159 @@ func TestTxSendBatch(t *testing.T) {
 	}
 }
 
-// TODO figure out how to test multiple datasets, writekeys, and apiHosts
-// causing multiple batches to be dispatched
+// FancyFakeRoundTripper gets built with a map of incoming URL/Header components
+// to the body that's expected and the response that's appropriate for that
+// request. It'll send a different response depending on what it gets as well as
+// error if the body was wrong
+type FancyFakeRoundTripper struct {
+	req       *http.Request
+	reqBody   string
+	reqBodies map[string]string
+	resp      *http.Response
 
-// func TestBatchMarshal(t *testing.T) {
-// 	tsts := []struct {
-// 		in          map[string][]map[string]interface{} // map of {dataset to list of events}
-// 		niledEvents map[string][]bool
-// 		expected    string
-// 		errMsgs     []string
-// 	}{
-// 		{
-// 			map[string][]map[string]interface{}{
-// 				"alpha": {
-// 					{"a": 1},
-// 					{"b": func() {}},
-// 					{"c": 3},
-// 				},
-// 				"beta": {
-// 					{"d": make(chan string)},
-// 					{"e": 5},
-// 				},
-// 				"gamma": {
-// 					{"f": 6},
-// 				},
-// 			},
-// 			map[string][]bool{
-// 				"alpha": {false, true, false},
-// 				"beta":  {true, false},
-// 				"gamma": {false},
-// 			},
-// 			`{"alpha":[{"data":{"a":1}},{"data":{"c":3}}],"beta":[{"data":{"e":5}}],"gamma":[{"data":{"f":6}}]}`,
-// 			[]string{"MarshalJSON", "MarshalJSON"},
-// 		},
-// 		{ // shouldn't happen based on how muster works, but just in case
-// 			map[string][]map[string]interface{}{"nada": {}},
-// 			map[string][]bool{"nada": []bool{}},
-// 			"{}",
-// 			nil,
-// 		},
-// 		{
-// 			map[string][]map[string]interface{}{
-// 				"nada": {
-// 					{"a": func() {}},
-// 					{"b": make(chan string)},
-// 				},
-// 				"zip": {
-// 					{"c": func() {}},
-// 				},
-// 			},
-// 			map[string][]bool{
-// 				"nada": {true, true},
-// 				"zip":  {true},
-// 			},
-// 			"{}",
-// 			[]string{"MarshalJSON", "MarshalJSON", "MarshalJSON"},
-// 		},
-// 	}
+	// map of request apihost/writekey/dataset to intended response
+	respBody   string
+	respBodies map[string]string
+	respErr    error
+}
 
-// 	for _, tt := range tsts {
-// 		b := &batchAgg{blockOnResponses: true}
-// 		for dName, datas := range tt.in {
-// 			for _, d := range datas {
-// 				b.Add(&Event{
-// 					Dataset: dName,
-// 					fieldHolder: fieldHolder{
-// 						data: d,
-// 					},
-// 				})
-// 			}
-// 		}
-// 		responses = make(chan Response, len(tt.errMsgs))
+func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	var bodyFound, responseFound bool
+	f.req = r
+	for reqHeader, reqBody := range f.reqBodies {
+		// respHeader is apihost,writekey,dataset
+		headerKeys := strings.Split(reqHeader, ",")
+		expectedURL, _ := url.Parse(fmt.Sprintf("%s/1/batch/%s", headerKeys[0], headerKeys[2]))
+		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
+			bodyBytes, _ := ioutil.ReadAll(r.Body)
+			f.reqBody = string(bodyBytes)
+			// build compressed copy to compare
+			expectedBuf := &bytes.Buffer{}
+			g := gzip.NewWriter(expectedBuf)
+			g.Write([]byte(reqBody))
+			g.Close()
+			// did we get the body we were expecting?
+			if f.reqBody != expectedBuf.String() {
+				continue
+			}
+			f.resp.Body = ioutil.NopCloser(strings.NewReader(reqBody))
+			bodyFound = true
+			break
+		}
+	}
+	if !bodyFound {
+		f.resp.Body = ioutil.NopCloser(strings.NewReader(`{"error":"ffrt body not found"}`))
+		return f.resp, f.respErr
+	}
+	for respHeader, respBody := range f.respBodies {
+		// respHeader is apihost,writekey,dataset
+		headerKeys := strings.Split(respHeader, ",")
+		expectedURL, _ := url.Parse(fmt.Sprintf("%s/1/batch/%s", headerKeys[0], headerKeys[2]))
+		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
+			f.resp.Body = ioutil.NopCloser(strings.NewReader(respBody))
+			responseFound = true
+			break
+		}
+	}
+	if !responseFound {
+		f.resp.Body = ioutil.NopCloser(strings.NewReader(`{"error":"ffrt response not found"}`))
+	}
+	return f.resp, f.respErr
+}
 
-// 		encoded, err := json.Marshal(b)
-// 		testOK(t, err)
-// 		testEquals(t, string(encoded), tt.expected)
-// 		for datasetName, nilList := range tt.niledEvents {
-// 			for i, ev := range b.batches[datasetName] {
-// 				if nilList[i] != (ev == nil) {
-// 					t.Errorf("expected %s event at index %d to be nil, but was %+v",
-// 						datasetName, i, ev)
-// 				}
-// 			}
-// 		}
-// 		for _, errMsg := range tt.errMsgs {
-// 			rsp := testGetResponse(t, responses)
-// 			testErr(t, rsp.Err)
-// 			if !strings.Contains(rsp.Err.Error(), errMsg) {
-// 				t.Errorf("expected json encoding error, got: %s", rsp.Err.Error())
-// 			}
-// 		}
-// 	}
-// }
+// batch behavior on a batch with a multiple datasets/writekeys/apihosts
+func TestTxSendBatchMultiple(t *testing.T) {
+	tsts := []struct {
+		in           map[string][]map[string]interface{} // datas
+		expReqBodies map[string]string
+		respBodies   map[string]string // JSON from server
+		expected     []Response
+	}{
+		{
+			map[string][]map[string]interface{}{
+				"ah1,wk1,ds1": {
+					{"a": 1},
+					{"b": 2, "bb": 22},
+					{"c": 3.1},
+				},
+				"ah1,wk1,ds2": {
+					{"a": 12},
+					{"b": 22, "bb": 33},
+					{"c": 39.2},
+				},
+				"ah3,wk3,ds3": {
+					{"a": 32},
+					{"b": 32, "bb": 39},
+					{"c": 3.8},
+				},
+			},
+			map[string]string{
+				"ah1,wk1,ds1": `[{"data":{"a":1}},{"data":{"b":2,"bb":22}},{"data":{"c":3.1}}]`,
+				"ah1,wk1,ds2": `[{"data":{"a":12}},{"data":{"b":22,"bb":33}},{"data":{"c":39.2}}]`,
+				"ah3,wk3,ds3": `[{"data":{"a":32}},{"data":{"b":32,"bb":39}},{"data":{"c":3.8}}]`,
+			},
+			map[string]string{
+				"ah1,wk1,ds1": `[{"status":202},{"status":203},{"status":204}]`,
+				"ah1,wk1,ds2": `[{"status":202},{"status":202},{"status":429,"error":"bratelimited"}]`,
+				"ah3,wk3,ds3": `[{"status":200},{"status":201},{"status":202}]`,
+			},
+			[]Response{
+				{StatusCode: 202, Metadata: "emmetta0"},
+				{StatusCode: 203, Metadata: "emmetta1"},
+				{StatusCode: 204, Metadata: "emmetta2"},
+				{StatusCode: 202, Metadata: "emmetta3"},
+				{StatusCode: 202, Metadata: "emmetta4"},
+				{Err: errors.New("bratelimited"), StatusCode: 429, Metadata: "emmetta5"},
+				{StatusCode: 200, Metadata: "emmetta6"},
+				{StatusCode: 201, Metadata: "emmetta7"},
+				{StatusCode: 202, Metadata: "emmetta8"},
+			},
+		},
+	}
+
+	ffrt := &FancyFakeRoundTripper{
+		resp: &http.Response{
+			StatusCode: 200,
+		},
+	}
+
+	for _, tt := range tsts {
+		b := &batchAgg{httpClient: &http.Client{Transport: ffrt}}
+		responses = make(chan Response, len(tt.expected))
+		ffrt.reqBodies = tt.expReqBodies
+		ffrt.respBodies = tt.respBodies
+		// insert events in sorted order to check responses
+		keys := []string{}
+		for k, _ := range tt.in {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var i int // counter to identify response metadata
+		for _, k := range keys {
+			headers := strings.Split(k, ",")
+			for _, data := range tt.in[k] {
+				b.Add(&Event{
+					fieldHolder: fieldHolder{data: data},
+					APIHost:     headers[0],
+					WriteKey:    headers[1],
+					Dataset:     headers[2],
+					Metadata:    fmt.Sprint("emmetta", i), // tracking insertion order
+				})
+				i++
+			}
+		}
+		b.Fire(&testNotifier{})
+		for _, expResp := range tt.expected {
+			resp := testGetResponse(t, responses)
+			testEquals(t, resp.StatusCode, expResp.StatusCode)
+			testEquals(t, resp.Metadata, expResp.Metadata)
+			if expResp.Err != nil {
+				if !strings.Contains(resp.Err.Error(), expResp.Err.Error()) {
+					t.Errorf("expected error to contain '%s', got: '%s'", expResp.Err.Error(), resp.Err.Error())
+				}
+			} else {
+				testEquals(t, resp.Err, expResp.Err)
+			}
+		}
+	}
+}
