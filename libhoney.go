@@ -30,7 +30,7 @@ const (
 	// defaultbatchTimeout how frequently to send unfilled batches
 	defaultbatchTimeout = 100 * time.Millisecond
 	// defaultmaxConcurrentBatches how many batches to maintain in parallel
-	defaultmaxConcurrentBatches = 10
+	defaultmaxConcurrentBatches = 80
 	// defaultpendingWorkCapacity how many events to queue up for busy batches
 	defaultpendingWorkCapacity = 10000
 )
