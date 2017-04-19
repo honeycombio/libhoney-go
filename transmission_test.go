@@ -232,10 +232,10 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 				{"b": func() {}},
 				{"c": 3.1},
 			},
-			`[{"status":202},{"status":202}]`,
-			[]Response{ // specific order!
-				{Err: errors.New("unsupported type"), Metadata: "emmetta1"},
+			`[{"status":202},{"status":202},{"status":202}]`,
+			[]Response{
 				{StatusCode: 202, Metadata: "emmetta0"},
+				{StatusCode: 202, Metadata: "emmetta1"},
 				{StatusCode: 202, Metadata: "emmetta2"},
 			},
 		},
