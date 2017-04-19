@@ -159,9 +159,9 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(struct {
-		Data       map[string]interface{} `json:"data"`
-		SampleRate uint                   `json:"samplerate,omitempty"`
-		Timestamp  *time.Time             `json:"time,omitempty"`
+		Data       marshallableMap `json:"data"`
+		SampleRate uint            `json:"samplerate,omitempty"`
+		Timestamp  *time.Time      `json:"time,omitempty"`
 	}{e.data, sampleRate, tPointer})
 }
 
