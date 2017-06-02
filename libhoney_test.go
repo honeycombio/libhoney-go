@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -710,7 +711,7 @@ func TestChannelMembers(t *testing.T) {
 }
 
 func TestEventMarshal(t *testing.T) {
-	e := Event{SampleRate: 1}
+	e := &Event{SampleRate: 1}
 	e.data = map[string]interface{}{"a": 1}
 	b, err := json.Marshal(e)
 	testOK(t, err)
@@ -721,6 +722,93 @@ func TestEventMarshal(t *testing.T) {
 	b, err = json.Marshal(e)
 	testOK(t, err)
 	testEquals(t, string(b), `{"data":{"a":1},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
+}
+
+func TestDataRace1(t *testing.T) {
+	e := &Event{SampleRate: 1}
+	e.data = map[string]interface{}{"a": 1}
+
+	var err error
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go func() {
+		_, err = json.Marshal(e)
+		wg.Done()
+	}()
+
+	go func() {
+		mStr := map[string]interface{}{
+			"a": "valA",
+			"b": 2,
+			"c": 5.123,
+			"d": []string{"d_a", "d_b"},
+		}
+		e.AddField("b", 2)
+		e.Add(mStr)
+		wg.Done()
+	}()
+
+	wg.Wait()
+	testOK(t, err)
+}
+
+func TestDataRace2(t *testing.T) {
+	b := &Builder{}
+	b.data = map[string]interface{}{"a": 1}
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go func() {
+		_ = b.NewEvent()
+		wg.Done()
+	}()
+
+	go func() {
+		b.AddField("b", 2)
+		wg.Done()
+	}()
+
+	wg.Wait()
+}
+
+func TestDataRace3(t *testing.T) {
+	resetPackageVars()
+	Init(Config{})
+	testTx := &txTestClient{}
+	testTx.Start()
+
+	tx = testTx
+
+	ev := &Event{
+		fieldHolder: fieldHolder{
+			data: map[string]interface{}{"a": 1},
+		},
+		APIHost:    "foo",
+		WriteKey:   "bar",
+		Dataset:    "baz",
+		SampleRate: 1,
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
+	go func() {
+		err := ev.Send()
+		testOK(t, err)
+		wg.Done()
+	}()
+
+	go func() {
+		ev.AddField("newField", 1)
+		wg.Done()
+	}()
+
+	wg.Wait()
+
+	testEquals(t, len(testTx.datas), 1, "expected testTx num datas incorrect")
 }
 
 //
