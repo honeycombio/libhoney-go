@@ -27,7 +27,7 @@ func init() {
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
-	version           = "1.3.2"
+	version           = "1.3.3"
 
 	// defaultmaxBatchSize how many events to collect in a batch
 	defaultmaxBatchSize = 50
@@ -146,7 +146,9 @@ type Event struct {
 // Marshaling an Event for batching up to the Honeycomb servers. Omits fields
 // that aren't specific to this particular event, and allows for behavior like
 // omitempty'ing a zero'ed out time.Time.
-func (e Event) MarshalJSON() ([]byte, error) {
+func (e *Event) MarshalJSON() ([]byte, error) {
+	e.lock.RLock()
+	defer e.lock.RUnlock()
 	tPointer := &(e.Timestamp)
 	if e.Timestamp.IsZero() {
 		tPointer = nil
@@ -182,12 +184,12 @@ type Builder struct {
 
 	// any dynamic fields to apply to each generated event
 	dynFields     []dynamicField
-	dynFieldsLock sync.Mutex
+	dynFieldsLock sync.RWMutex
 }
 
 type fieldHolder struct {
 	data marshallableMap
-	lock sync.Mutex
+	lock sync.RWMutex
 }
 
 // Wrapper type for custom JSON serialization: individual values that can't be
@@ -502,6 +504,8 @@ func (e *Event) Send() error {
 // return an error.  Required fields are APIHost, WriteKey, and Dataset. Values
 // specified in an Event override Config.
 func (e *Event) SendPresampled() error {
+	e.lock.RLock()
+	defer e.lock.RUnlock()
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
@@ -601,11 +605,14 @@ func (b *Builder) NewEvent() *Event {
 	}
 	e.data = make(map[string]interface{})
 
-	// copy static metrics (everything's been serialized so flat copy is OK)
+	b.lock.RLock()
+	defer b.lock.RUnlock()
 	for k, v := range b.data {
 		e.data[k] = v
 	}
 	// create dynamic metrics
+	b.dynFieldsLock.RLock()
+	defer b.dynFieldsLock.RUnlock()
 	for _, dynField := range b.dynFields {
 		e.AddField(dynField.name, dynField.fn())
 	}
@@ -623,11 +630,14 @@ func (b *Builder) Clone() *Builder {
 		dynFields:  make([]dynamicField, 0, len(b.dynFields)),
 	}
 	newB.data = make(map[string]interface{})
-	// copy static metrics (everything's been serialized so flat copy is OK)
+	b.lock.RLock()
+	defer b.lock.RUnlock()
 	for k, v := range b.data {
 		newB.data[k] = v
 	}
 	// copy dynamic metric generators
+	b.dynFieldsLock.RLock()
+	defer b.dynFieldsLock.RUnlock()
 	for _, dynFd := range b.dynFields {
 		newB.dynFields = append(newB.dynFields, dynFd)
 	}
