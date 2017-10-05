@@ -45,7 +45,7 @@ var (
 
 // globals to support default/singleton-like behavior
 var (
-	tx     txClient
+	tx     Output
 	txOnce sync.Once
 
 	blockOnResponses = false
@@ -105,6 +105,13 @@ type Config struct {
 	// sent to Honeycomb. Defaults to False - if you don't read from the Responses
 	// channel it will be ok.
 	BlockOnResponse bool
+
+	// Output allows you to override what happens to events after you call
+	// Send() on them. By default, events are asynchronously sent to the
+	// Honeycomb API. You can use the MockOutput included in this package in
+	// unit tests, or use the WriterOutput to write events to STDOUT or to a
+	// file when developing locally.
+	Output Output
 
 	// Configuration for the underlying sender. It is safe (and recommended) to
 	// leave these values at their defaults. You cannot change these values
@@ -284,19 +291,23 @@ func Init(config Config) error {
 
 	blockOnResponses = config.BlockOnResponse
 
-	// reset the global transmission
-	tx = &txDefaultClient{
-		maxBatchSize:         config.MaxBatchSize,
-		batchTimeout:         config.SendFrequency,
-		maxConcurrentBatches: config.MaxConcurrentBatches,
-		pendingWorkCapacity:  config.PendingWorkCapacity,
-		blockOnSend:          config.BlockOnSend,
-		blockOnResponses:     config.BlockOnResponse,
-		transport:            config.Transport,
-	}
+	if config.Output == nil {
+		// reset the global transmission
+		tx = &txDefaultClient{
+			maxBatchSize:         config.MaxBatchSize,
+			batchTimeout:         config.SendFrequency,
+			maxConcurrentBatches: config.MaxConcurrentBatches,
+			pendingWorkCapacity:  config.PendingWorkCapacity,
+			blockOnSend:          config.BlockOnSend,
+			blockOnResponses:     config.BlockOnResponse,
+			transport:            config.Transport,
+		}
 
-	if err := tx.Start(); err != nil {
-		return err
+		if err := tx.Start(); err != nil {
+			return err
+		}
+	} else {
+		tx = config.Output
 	}
 
 	sd, _ = statsd.New(statsd.Prefix("libhoney"))
@@ -471,6 +482,12 @@ func (f *fieldHolder) AddFunc(fn func() (string, interface{}, error)) error {
 	return nil
 }
 
+func (f *fieldHolder) Fields() map[string]interface{} {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	return f.data
+}
+
 // Send dispatches the event to be sent to Honeycomb, sampling if necessary.
 //
 // If you have sampling enabled
@@ -554,11 +571,6 @@ func sendDroppedResponse(e *Event, message string) {
 // returns true if the sample should be dropped
 func shouldDrop(rate uint) bool {
 	return rand.Intn(int(rate)) != 0
-}
-
-// returns true if the first character of the string is lowercase
-func isFirstLower(s string) bool {
-	return false
 }
 
 // NewBuilder creates a new event builder. The builder inherits any

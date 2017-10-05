@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -27,10 +28,12 @@ import (
 	"github.com/facebookgo/muster"
 )
 
-type txClient interface {
+// Output is responsible for handling events after Send() is called.
+// Implementations of Add() must be safe for concurrent calls.
+type Output interface {
+	Add(ev *Event)
 	Start() error
 	Stop() error
-	Add(*Event)
 }
 
 type txDefaultClient struct {
@@ -90,32 +93,6 @@ func (t *txDefaultClient) Add(ev *Event) {
 			}
 		}
 	}
-}
-
-type txTestClient struct {
-	Timestamps  []time.Time
-	datas       [][]byte
-	sampleRates []uint
-}
-
-func (t *txTestClient) Start() error {
-	t.Timestamps = make([]time.Time, 0)
-	t.datas = make([][]byte, 0)
-	return nil
-}
-
-func (t *txTestClient) Stop() error {
-	return nil
-}
-
-func (t *txTestClient) Add(ev *Event) {
-	t.Timestamps = append(t.Timestamps, ev.Timestamp)
-	blob, err := json.Marshal(ev.data)
-	if err != nil {
-		panic(err)
-	}
-	t.datas = append(t.datas, blob)
-	t.sampleRates = append(t.sampleRates, ev.SampleRate)
 }
 
 // batchAgg is a batch aggregator - it's actually collecting what will
@@ -345,4 +322,50 @@ func buildReqReader(jsonEncoded []byte) (io.Reader, bool) {
 // nower to make testing easier
 type nower interface {
 	Now() time.Time
+}
+
+// WriterOutput implements the Output interface by marshalling events to JSON
+// and writing to STDOUT, or to the writer W if one is specified.
+type WriterOutput struct {
+	W io.Writer
+
+	sync.Mutex
+}
+
+func (w *WriterOutput) Start() error { return nil }
+func (w *WriterOutput) Stop() error  { return nil }
+
+func (w *WriterOutput) Add(ev *Event) {
+	w.Lock()
+	defer w.Unlock()
+	m, _ := ev.MarshalJSON()
+	m = append(m, '\n')
+	if w.W == nil {
+		w.W = os.Stdout
+	}
+	w.W.Write(m)
+}
+
+// MockOutput implements the Output interface by retaining a slice of added
+// events, for use in unit tests.
+type MockOutput struct {
+	events []*Event
+	sync.Mutex
+}
+
+func (m *MockOutput) Add(ev *Event) {
+	m.Lock()
+	m.events = append(m.events, ev)
+	m.Unlock()
+}
+
+func (m *MockOutput) Start() error { return nil }
+func (m *MockOutput) Stop() error  { return nil }
+
+func (m *MockOutput) Events() []*Event {
+	m.Lock()
+	defer m.Unlock()
+	output := make([]*Event, len(m.events))
+	copy(output, m.events)
+	return output
 }
