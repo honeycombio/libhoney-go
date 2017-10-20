@@ -101,12 +101,12 @@ func TestTxSendSingle(t *testing.T) {
 		testNower:   &fakeNower{},
 		testBlocker: &sync.WaitGroup{},
 	}
-	reset := func(b *batchAgg, frt *FakeRoundTripper, body string, err error) {
+	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
 		if body == "" {
 			frt.resp = nil
 		} else {
 			frt.resp = &http.Response{
-				StatusCode: 200,
+				StatusCode: statusCode,
 				Body:       ioutil.NopCloser(strings.NewReader(body)),
 			}
 		}
@@ -123,7 +123,7 @@ func TestTxSendSingle(t *testing.T) {
 		Dataset:     "ds1",
 		Metadata:    "emmetta",
 	}
-	reset(b, frt, `[{"status":202}]`, nil)
+	reset(b, frt, 200, `[{"status":202}]`, nil)
 	b.Add(e)
 	b.Fire(&testNotifier{})
 	expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
@@ -148,7 +148,7 @@ func TestTxSendSingle(t *testing.T) {
 	UserAgentAddition = "  fancyApp/3 "
 	expectedUserAgentAddition := "fancyApp/3"
 	longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
-	reset(b, frt, `[{"status":202}]`, nil)
+	reset(b, frt, 200, `[{"status":202}]`, nil)
 	b.Add(e)
 	b.Fire(&testNotifier{})
 	testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
@@ -158,7 +158,7 @@ func TestTxSendSingle(t *testing.T) {
 	UserAgentAddition = ""
 
 	// test unsuccessful send
-	reset(b, frt, "", errors.New("testing error handling"))
+	reset(b, frt, 0, "", errors.New("testing error handling"))
 	b.Add(e)
 	b.Fire(&testNotifier{})
 	rsp = testGetResponse(t, responses)
@@ -168,7 +168,7 @@ func TestTxSendSingle(t *testing.T) {
 
 	// test nonblocking response path is actually nonblocking, drops response
 	responses <- placeholder
-	reset(b, frt, "", errors.New("err"))
+	reset(b, frt, 0, "", errors.New("err"))
 	b.testBlocker.Add(1)
 	b.Add(e)
 	go b.Fire(&testNotifier{})
@@ -179,7 +179,7 @@ func TestTxSendSingle(t *testing.T) {
 
 	// test blocking response path, error
 	b.blockOnResponses = true
-	reset(b, frt, "", errors.New("err"))
+	reset(b, frt, 0, "", errors.New("err"))
 	responses <- placeholder
 	b.Add(e)
 	go b.Fire(&testNotifier{})
@@ -191,9 +191,22 @@ func TestTxSendSingle(t *testing.T) {
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
 
+	// test blocking response path, request completed but got HTTP error code
+	b.blockOnResponses = true
+	reset(b, frt, 400, `{"error":"unknown Team key - check your credentials"}`, nil)
+	responses <- placeholder
+	b.Add(e)
+	go b.Fire(&testNotifier{})
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp,
+		"should pull placeholder response off channel first")
+	rsp = testGetResponse(t, responses)
+	testEquals(t, rsp.StatusCode, 400)
+	testEquals(t, string(rsp.Body), `{"error":"unknown Team key - check your credentials"}`)
+
 	// test blocking response path, no error
 	responses <- placeholder
-	reset(b, frt, `[{"status":202}]`, nil)
+	reset(b, frt, 200, `[{"status":202}]`, nil)
 	b.Add(e)
 	go b.Fire(&testNotifier{})
 	rsp = testGetResponse(t, responses)
