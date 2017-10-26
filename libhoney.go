@@ -302,12 +302,11 @@ func Init(config Config) error {
 			blockOnResponses:     config.BlockOnResponse,
 			transport:            config.Transport,
 		}
-
-		if err := tx.Start(); err != nil {
-			return err
-		}
 	} else {
 		tx = config.Output
+	}
+	if err := tx.Start(); err != nil {
+		return err
 	}
 
 	sd, _ = statsd.New(statsd.Prefix("libhoney"))
@@ -482,9 +481,10 @@ func (f *fieldHolder) AddFunc(fn func() (string, interface{}, error)) error {
 	return nil
 }
 
+// Fields returns a reference to the map of fields that have been added to an
+// event. Caution: it is not safe to manipulate the returned map concurrently
+// with calls to AddField, Add or AddFunc.
 func (f *fieldHolder) Fields() map[string]interface{} {
-	f.lock.Lock()
-	defer f.lock.Unlock()
 	return f.data
 }
 
