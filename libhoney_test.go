@@ -379,7 +379,6 @@ func TestCloneBuilder(t *testing.T) {
 
 func TestBuilderDynFields(t *testing.T) {
 	resetPackageVars()
-	Init(Config{})
 	var i int
 	myIntFn := func() interface{} {
 		v := i
@@ -431,7 +430,6 @@ func TestBuilderDynFields(t *testing.T) {
 
 func TestBuilderStaticFields(t *testing.T) {
 	resetPackageVars()
-	Init(Config{})
 	// test you can add fields to a builder and events get them
 	b := NewBuilder()
 	b.AddField("intF", 1)
@@ -461,17 +459,15 @@ func TestBuilderStaticFields(t *testing.T) {
 
 func TestSendTime(t *testing.T) {
 	resetPackageVars()
+	testTx := &MockOutput{}
 	Init(Config{
 		WriteKey: "foo",
 		Dataset:  "bar",
+		Output:   testTx,
 	})
-	testTx := &txTestClient{}
-	testTx.Start()
-
-	tx = testTx
 
 	now := time.Now().Truncate(time.Millisecond)
-	expected := fmt.Sprintf(`{"event_time":"%s"}`, now.Format(time.RFC3339Nano))
+	expected := map[string]interface{}{"event_time": now}
 
 	tsts := []struct {
 		key string
@@ -493,18 +489,15 @@ func TestSendTime(t *testing.T) {
 		}
 		err := ev.Send()
 		testOK(t, err)
-		testEquals(t, len(testTx.datas), i+1)
-		testEquals(t, string(testTx.datas[i]), expected)
+		testEquals(t, len(testTx.Events()), i+1)
+		testEquals(t, testTx.Events()[i].Fields(), expected)
 	}
 }
 
 func TestSendPresampledErrors(t *testing.T) {
 	resetPackageVars()
-	Init(Config{})
-	testTx := &txTestClient{}
-	testTx.Start()
-
-	tx = testTx
+	testTx := &MockOutput{}
+	Init(Config{Output: testTx})
 
 	tsts := []struct {
 		ev     *Event
@@ -563,7 +556,7 @@ func TestSendPresampledErrors(t *testing.T) {
 func TestPresampledSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &txTestClient{}
+	testTx := &MockOutput{}
 	testTx.Start()
 
 	tx = testTx
@@ -582,8 +575,8 @@ func TestPresampledSendSamplerate(t *testing.T) {
 		err := ev.SendPresampled()
 		testOK(t, err)
 
-		testEquals(t, len(testTx.datas), i+1)
-		testEquals(t, testTx.sampleRates[i], uint(5))
+		testEquals(t, len(testTx.Events()), i+1)
+		testEquals(t, testTx.Events()[i].SampleRate, uint(5))
 	}
 }
 
@@ -591,7 +584,7 @@ func TestPresampledSendSamplerate(t *testing.T) {
 func TestSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &txTestClient{}
+	testTx := &MockOutput{}
 	testTx.Start()
 	rand.Seed(1)
 
@@ -610,8 +603,10 @@ func TestSendSamplerate(t *testing.T) {
 		err := ev.Send()
 		testOK(t, err)
 	}
-	testEquals(t, len(testTx.datas), 4, "expected testTx num datas incorrect")
-	testEquals(t, testTx.sampleRates, []uint{uint(2), uint(2), uint(2), uint(2)})
+	testEquals(t, len(testTx.Events()), 4, "expected testTx num events incorrect")
+	for _, ev := range testTx.Events() {
+		testEquals(t, ev.SampleRate, uint(2))
+	}
 }
 
 type testTransport struct {
@@ -775,8 +770,10 @@ func TestDataRace2(t *testing.T) {
 
 func TestDataRace3(t *testing.T) {
 	resetPackageVars()
-	Init(Config{})
-	testTx := &txTestClient{}
+	testTx := &MockOutput{}
+	Init(Config{
+		Output: testTx,
+	})
 	testTx.Start()
 
 	tx = testTx
@@ -808,7 +805,7 @@ func TestDataRace3(t *testing.T) {
 
 	wg.Wait()
 
-	testEquals(t, len(testTx.datas), 1, "expected testTx num datas incorrect")
+	testEquals(t, len(testTx.Events()), 1, "expected testTx num datas incorrect")
 }
 
 //
