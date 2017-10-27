@@ -258,6 +258,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		if err != nil {
 			b.enqueueErrResponses(fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
 				events, dur/time.Duration(numEncoded))
+			return
 		}
 		for _, ev := range events {
 			if ev != nil {

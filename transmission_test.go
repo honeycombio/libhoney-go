@@ -19,6 +19,10 @@ var (
 	placeholder = Response{StatusCode: http.StatusTeapot}
 )
 
+type errReader struct{}
+
+func (e errReader) Read(b []byte) (int, error) { return 0, errors.New("mystery read error!") }
+
 func TestTxAdd(t *testing.T) {
 	dc := &txDefaultClient{}
 	dc.muster.Work = make(chan interface{}, 1)
@@ -203,6 +207,25 @@ func TestTxSendSingle(t *testing.T) {
 	rsp = testGetResponse(t, responses)
 	testEquals(t, rsp.StatusCode, 400)
 	testEquals(t, string(rsp.Body), `{"error":"unknown Team key - check your credentials"}`)
+
+	// test the case that our POST request completed, we got an HTTP error
+	// code, but then got an error reading HTTP response body. An unlikely
+	// scenario but technically possible.
+	b.blockOnResponses = true
+	frt.resp = &http.Response{
+		StatusCode: 500,
+		Body:       ioutil.NopCloser(errReader{}),
+	}
+	frt.respErr = nil
+	b.batches = nil
+	responses <- placeholder
+	b.Add(e)
+	go b.Fire(&testNotifier{})
+	rsp = testGetResponse(t, responses)
+	testIsPlaceholderResponse(t, rsp,
+		"should pull placeholder response off channel first")
+	rsp = testGetResponse(t, responses)
+	testEquals(t, rsp.Err, errors.New("Got HTTP error code but couldn't read response body: mystery read error!"))
 
 	// test blocking response path, no error
 	responses <- placeholder
