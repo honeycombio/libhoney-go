@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -216,17 +217,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	// if the entire HTTP POST failed, send a failed response for every event
 	if err != nil {
 		sd.Increment("send_errors")
-		for _, ev := range events {
-			// Pass the top-level send error down responses channel for each event
-			// that didn't already error during encoding
-			if ev != nil {
-				b.enqueueResponse(Response{
-					Duration: dur / time.Duration(numEncoded),
-					Metadata: ev.Metadata,
-					Err:      err,
-				})
-			}
-		}
+		// Pass the top-level send error down responses channel for each event
+		// that didn't already error during encoding
+		b.enqueueErrResponses(err, events, dur/time.Duration(numEncoded))
 		// the POST failed so we're done with this batch key's worth of events
 		return
 	}
@@ -236,21 +229,34 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	sd.Count("messages_sent", numEncoded)
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		sd.Increment("send_errors")
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			b.enqueueErrResponses(fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
+				events, dur/time.Duration(numEncoded))
+			return
+		}
+		for _, ev := range events {
+			if ev != nil {
+				b.enqueueResponse(Response{
+					StatusCode: resp.StatusCode,
+					Body:       body,
+					Duration:   dur / time.Duration(numEncoded),
+					Metadata:   ev.Metadata,
+				})
+			}
+		}
+		return
+	}
+
 	// decode the responses
 	batchResponses := []Response{}
 	err = json.NewDecoder(resp.Body).Decode(&batchResponses)
 	if err != nil {
 		// if we can't decode the responses, just error out all of them
 		sd.Increment("response_decode_errors")
-		for _, ev := range events {
-			if ev != nil {
-				b.enqueueResponse(Response{
-					Duration: dur,
-					Metadata: ev.Metadata,
-					Err:      err,
-				})
-			}
-		}
+		b.enqueueErrResponses(err, events, dur/time.Duration(numEncoded))
 		return
 	}
 
@@ -304,6 +310,18 @@ func (b *batchAgg) encodeBatch(events []*Event) ([]byte, int) {
 	}
 	buf.WriteByte(']')
 	return buf.Bytes(), numEncoded
+}
+
+func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time.Duration) {
+	for _, ev := range events {
+		if ev != nil {
+			b.enqueueResponse(Response{
+				Err:      err,
+				Duration: duration,
+				Metadata: ev.Metadata,
+			})
+		}
+	}
 }
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
