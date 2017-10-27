@@ -254,7 +254,11 @@ func (b *batchAgg) fireBatch(events []*Event) {
 
 	if resp.StatusCode != http.StatusOK {
 		sd.Increment("send_errors")
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			b.enqueueErrResponses(fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
+				events, dur/time.Duration(numEncoded))
+		}
 		for _, ev := range events {
 			if ev != nil {
 				b.enqueueResponse(Response{
