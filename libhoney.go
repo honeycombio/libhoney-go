@@ -9,8 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"net/url"
+	"path"
 	"reflect"
 	"sort"
 	"strings"
@@ -125,6 +128,45 @@ type Config struct {
 	// Honeycomb servers. Intended for use in tests in order to assert on
 	// expected behavior.
 	Transport http.RoundTripper
+}
+
+// VerifyWriteKey calls out to the Honeycomb API to validate the write key, so
+// we can exit immediately if desired instead of happily sending events that
+// are all rejected.
+func VerifyWriteKey(config Config) error {
+	if config.WriteKey == "" {
+		return errors.New("Write key is empty")
+	}
+	if config.APIHost == "" {
+		config.APIHost = defaultAPIHost
+	}
+	u, err := url.Parse(config.APIHost)
+	if err != nil {
+		return fmt.Errorf("Error parsing API URL: %s", err)
+	}
+	u.Path = path.Join(u.Path, "1", "team_slug")
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", UserAgentAddition)
+	req.Header.Add("X-Honeycomb-Team", config.WriteKey)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errors.New("Write key provided is invalid")
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf(`Abnormal non-200 response verifying Honeycomb write key: %d
+Response body: %s`, resp.StatusCode, string(body))
+	}
+
+	return nil
 }
 
 // Event is used to hold data that can be sent to Honeycomb. It can also
