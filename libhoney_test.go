@@ -101,7 +101,6 @@ func TestAddStruct(t *testing.T) {
 		F2: 5,
 		F3: 6,
 		F4: 7,
-		F5: 8,
 		h1: 9,
 		h2: []string{"a", "b"},
 		P2: intPtr,
@@ -114,8 +113,7 @@ func TestAddStruct(t *testing.T) {
 			"F1": "snth",
 			"F2": 5,
 			"P2": 0,
-			"effthree": 6,
-			"f5": 8
+			"effthree": 6
 		}`,
 		string(marshalled))
 }
