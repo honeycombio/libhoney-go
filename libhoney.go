@@ -30,7 +30,7 @@ func init() {
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
-	version           = "1.5.0"
+	version           = "1.5.1"
 
 	// DefaultMaxBatchSize how many events to collect in a batch
 	DefaultMaxBatchSize = 50
@@ -375,7 +375,9 @@ func Init(config Config) error {
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
 func Close() {
-	tx.Stop()
+	if tx != nil {
+		tx.Stop()
+	}
 	close(responses)
 }
 
