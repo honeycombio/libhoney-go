@@ -39,6 +39,17 @@ func TestLibhoney(t *testing.T) {
 	testEquals(t, cap(responses), 2*DefaultPendingWorkCapacity)
 }
 
+func TestCloseWithoutInit(t *testing.T) {
+	// before Init() is called, tx is an unpopulated nil interface
+	tx = nil
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("recover should not have caught anything: got %v", r)
+		}
+	}()
+	Close()
+}
+
 func TestNewEvent(t *testing.T) {
 	resetPackageVars()
 	conf := Config{

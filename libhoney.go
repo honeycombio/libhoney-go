@@ -375,7 +375,9 @@ func Init(config Config) error {
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
 func Close() {
-	tx.Stop()
+	if tx != nil {
+		tx.Stop()
+	}
 	close(responses)
 }
 
