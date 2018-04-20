@@ -845,3 +845,42 @@ func ExampleAddDynamicField() {
 	AddDynamicField("num_goroutines",
 		func() interface{} { return runtime.NumGoroutine() })
 }
+
+func BenchmarkInit(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		Init(Config{
+			WriteKey:   "aoeu",
+			Dataset:    "oeui",
+			SampleRate: 1,
+			APIHost:    "http://localhost:8081/",
+			Output:     &MockOutput{},
+		})
+		// create an event, add fields
+		ev := NewEvent()
+		ev.AddField("duration_ms", 153.12)
+		ev.AddField("method", "get")
+		// send the event
+		ev.Send()
+		Close()
+	}
+}
+
+func BenchmarkFlush(b *testing.B) {
+	Init(Config{
+		WriteKey:   "aoeu",
+		Dataset:    "oeui",
+		SampleRate: 1,
+		APIHost:    "http://localhost:8081/",
+		Output:     &MockOutput{},
+	})
+	for n := 0; n < b.N; n++ {
+		// create an event, add fields
+		ev := NewEvent()
+		ev.AddField("duration_ms", 153.12)
+		ev.AddField("method", "get")
+		// send the event
+		ev.Send()
+		Flush()
+	}
+	Close()
+}

@@ -381,6 +381,20 @@ func Close() {
 	close(responses)
 }
 
+// Flush closes and reopens the Output interface, ensuring events
+// are sent without waiting on the batch to be sent asyncronously.
+// Generally, it is more efficient to rely on asyncronous batches than to
+// call Flush, but certain scenarios may require Flush if asynchronous sends
+// are not guaranteed to run (i.e. running in AWS Lambda)
+// Flush is not thread safe - use it only when you are sure that no other
+// parts of your program are calling Send
+func Flush() {
+	if tx != nil {
+		tx.Stop()
+		tx.Start()
+	}
+}
+
 // SendNow is a shortcut to create an event, add data, and send the event.
 func SendNow(data interface{}) error {
 	ev := NewEvent()
