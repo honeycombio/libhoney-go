@@ -590,31 +590,34 @@ func (e *Event) Send() error {
 func (e *Event) SendPresampled() error {
 	e.lock.RLock()
 	defer e.lock.RUnlock()
-	if len(e.data) == 0 {
-		return errors.New("No metrics added to event. Won't send empty event.")
-	}
-	if e.APIHost == "" {
-		return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
-	}
-	if e.WriteKey == "" {
-		return errors.New("No WriteKey specified. Can't send event.")
-	}
-	if e.Dataset == "" {
-		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
-	}
-
-	txOnce.Do(func() {
-		if tx == nil {
-			tx = &txDefaultClient{
-				maxBatchSize:         DefaultMaxBatchSize,
-				batchTimeout:         DefaultBatchTimeout,
-				maxConcurrentBatches: DefaultMaxConcurrentBatches,
-				pendingWorkCapacity:  DefaultPendingWorkCapacity,
-			}
-			tx.Start()
+	// only require these things for the output that sends to Honeycomb. writer,
+	// discard, and mock output don't need to enforce these characteristics.
+	if _, ok := tx.(*txDefaultClient); ok {
+		if len(e.data) == 0 {
+			return errors.New("No metrics added to event. Won't send empty event.")
 		}
-	})
+		if e.APIHost == "" {
+			return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
+		}
+		if e.WriteKey == "" {
+			return errors.New("No WriteKey specified. Can't send event.")
+		}
+		if e.Dataset == "" {
+			return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
+		}
 
+		txOnce.Do(func() {
+			if tx == nil {
+				tx = &txDefaultClient{
+					maxBatchSize:         DefaultMaxBatchSize,
+					batchTimeout:         DefaultBatchTimeout,
+					maxConcurrentBatches: DefaultMaxConcurrentBatches,
+					pendingWorkCapacity:  DefaultPendingWorkCapacity,
+				}
+				tx.Start()
+			}
+		})
+	}
 	tx.Add(e)
 	return nil
 }
