@@ -395,16 +395,21 @@ func Flush() {
 	}
 }
 
-// SendNow is a shortcut to create an event, add data, and send the event.
+// SendNow is deprecated and may be removed in a future major release.
+// Contrary to its name, SendNow does not block and send data
+// immediately, but only enqueues to be sent asynchronously.
+// It is equivalent to:
+//   ev := libhoney.NewEvent()
+//   ev.Add(data)
+//   ev.Send()
 func SendNow(data interface{}) error {
 	ev := NewEvent()
 	if err := ev.Add(data); err != nil {
 		return err
 	}
-	if err := ev.Send(); err != nil {
-		return err
-	}
-	return nil
+	err := ev.Send()
+
+	return err
 }
 
 // Responses returns the channel from which the caller can read the responses
@@ -659,17 +664,20 @@ func (b *Builder) AddDynamicField(name string, fn func() interface{}) error {
 	return nil
 }
 
-// SendNow is a shortcut to create an event from this builder, add data, and
-// send the event.
+// SendNow is deprecated and may be removed in a future major release.
+// Contrary to its name, SendNow does not block and send data
+// immediately, but only enqueues to be sent asynchronously.
+// It is equivalent to:
+//   ev := builder.NewEvent()
+//   ev.Add(data)
+//   ev.Send()
 func (b *Builder) SendNow(data interface{}) error {
 	ev := b.NewEvent()
 	if err := ev.Add(data); err != nil {
 		return err
 	}
-	if err := ev.Send(); err != nil {
-		return err
-	}
-	return nil
+	err := ev.Send()
+	return err
 }
 
 // NewEvent creates a new Event prepopulated with fields, dynamic
