@@ -1,6 +1,8 @@
 # libhoney [![Build Status](https://travis-ci.org/honeycombio/libhoney-go.svg?branch=master)](https://travis-ci.org/honeycombio/libhoney-go)
 
-Go library for sending events to [Honeycomb](https://honeycomb.io). (For more information, see the [documentation](https://honeycomb.io/docs/) and [Go SDK guide](https://honeycomb.io/docs/connect/go).)
+Go library for sending events to [Honeycomb](https://honeycomb.io), a service for debugging your software in production.
+- [Usage & Examples](https://docs.honeycomb.io/sdk/go/)
+- [API Reference](https://godoc.org/github.com/honeycombio/libhoney-go)
 
 ## Installation:
 
