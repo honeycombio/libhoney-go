@@ -19,23 +19,41 @@ Honeycomb can calculate all sorts of statistics, so send the values you care abo
 ```go
 import "github.com/honeycombio/libhoney-go"
 
-// Call Init to configure libhoney
-libhoney.Init(libhoney.Config{
-  WriteKey: "YOUR_WRITE_KEY",
-  Dataset: "honeycomb-golang-example",
-})
-defer libhoney.Close() // Flush any pending calls to Honeycomb
+func main() {
+  // Call Init to configure libhoney
+  libhoney.Init(libhoney.Config{
+    WriteKey: "YOUR_WRITE_KEY",
+    Dataset: "honeycomb-golang-example",
+  })
+  // Flush any pending calls to Honeycomb before exiting
+  defer libhoney.Close()
 
-libhoney.SendNow(map[string]interface{}{
-  "duration_ms": 153.12,
-  "method": "get",
-  "hostname": "appserver15",
-  "payload_length": 27,
-})
+  // Create an event, add some data
+  ev := libhoney.NewEvent()
+  ev.Add(map[string]interface{}{
+    "method": "get",
+    "hostname": "appserver15",
+    "payload_length": 27,
+  }))
+
+  // This event will be sent regardless of how we exit
+  defer ev.Send()
+
+  if err := myOtherFunc(); err != nil {
+    ev.AddField("error", err)
+    ev.AddField("success", false)
+    return
+  }
+
+  // do some work, maybe measure some things
+
+  ev.AddField("duration_ms", 153.12)
+  ev.AddField("success", true)
+}
 ```
 
-See the [`examples` directory](examples/read_json_log.go) for sample code demonstrating how to use events,
-builders, fields, and dynamic fields.
+See the [`examples` directory](examples/read_json_log.go) for more sample code demonstrating
+how to use events, builders, fields, and dynamic fields.
 
 ## Contributions
 
