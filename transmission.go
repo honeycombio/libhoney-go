@@ -51,7 +51,7 @@ type txDefaultClient struct {
 }
 
 func (t *txDefaultClient) Start() error {
-	logger.Log("default transmission starting")
+	logger.Printf("default transmission starting")
 	t.muster.MaxBatchSize = t.maxBatchSize
 	t.muster.BatchTimeout = t.batchTimeout
 	t.muster.MaxConcurrentBatches = t.maxConcurrentBatches
@@ -67,12 +67,12 @@ func (t *txDefaultClient) Start() error {
 }
 
 func (t *txDefaultClient) Stop() error {
-	logger.Log("default transmission stopping")
+	logger.Printf("default transmission stopping")
 	return t.muster.Stop()
 }
 
 func (t *txDefaultClient) Add(ev *Event) {
-	logger.Log("adding event to transmission; queue length %d", len(t.muster.Work))
+	logger.Printf("adding event to transmission; queue length %d", len(t.muster.Work))
 	sd.Gauge("queue_length", len(t.muster.Work))
 	if t.blockOnSend {
 		t.muster.Work <- ev

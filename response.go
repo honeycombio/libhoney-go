@@ -54,7 +54,7 @@ func (r *Response) UnmarshalJSON(b []byte) error {
 // dropped the response because it's set to not block on the queue being full
 // and the queue was full.
 func writeToResponse(resp Response, block bool) (dropped bool) {
-	logger.Log("got response code %d, error %s, and body %s", resp.StatusCode, resp.Err, string(resp.Body))
+	logger.Printf("got response code %d, error %s, and body %s", resp.StatusCode, resp.Err, string(resp.Body))
 	if block {
 		responses <- resp
 	} else {

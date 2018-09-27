@@ -51,7 +51,7 @@ var (
 	tx     Output
 	txOnce sync.Once
 
-	logger Logger
+	logger Logger = &nullLogger{}
 
 	blockOnResponses = false
 	sd, _            = statsd.New(statsd.Mute(true)) // init working default, to be overridden
@@ -142,7 +142,7 @@ type Config struct {
 // we can exit immediately if desired instead of happily sending events that
 // are all rejected.
 func VerifyWriteKey(config Config) (team string, err error) {
-	defer func() { logger.Log("verify write key got back %s with err=%s", team, err) }()
+	defer func() { logger.Printf("verify write key got back %s with err=%s", team, err) }()
 	if config.WriteKey == "" {
 		return team, errors.New("Write key is empty")
 	}
@@ -350,11 +350,11 @@ func Init(config Config) error {
 	blockOnResponses = config.BlockOnResponse
 
 	logger = config.Logger
-	logger.Log("initializing libhoney")
-	logger.Log("libhoney configuration: %+v", config)
+	logger.Printf("initializing libhoney")
+	logger.Printf("libhoney configuration: %+v", config)
 
 	if config.Output == nil {
-		logger.Log("Using default transmission client")
+		logger.Printf("Using default transmission client")
 		// reset the global transmission
 		tx = &txDefaultClient{
 			maxBatchSize:         config.MaxBatchSize,
@@ -369,7 +369,7 @@ func Init(config Config) error {
 		tx = config.Output
 	}
 	if err := tx.Start(); err != nil {
-		logger.Log("transmission client failed to start: %s", err.Error())
+		logger.Printf("transmission client failed to start: %s", err.Error())
 		return err
 	}
 
@@ -393,7 +393,7 @@ func Init(config Config) error {
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
 func Close() {
-	logger.Log("closing libhoney")
+	logger.Printf("closing libhoney")
 	if tx != nil {
 		tx.Stop()
 	}
@@ -408,7 +408,7 @@ func Close() {
 // Flush is not thread safe - use it only when you are sure that no other
 // parts of your program are calling Send
 func Flush() {
-	logger.Log("flushing libhoney")
+	logger.Printf("flushing libhoney")
 	if tx != nil {
 		tx.Stop()
 		tx.Start()
@@ -428,7 +428,7 @@ func SendNow(data interface{}) error {
 		return err
 	}
 	err := ev.Send()
-	logger.Log("SendNow enqueued event, err=%v", err)
+	logger.Printf("SendNow enqueued event, err=%v", err)
 	return err
 }
 
@@ -594,7 +594,7 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 // in an Event override Config.
 func (e *Event) Send() (err error) {
 	if shouldDrop(e.SampleRate) {
-		logger.Log("dropping event due to sampling")
+		logger.Printf("dropping event due to sampling")
 		sd.Increment("sampled")
 		sendDroppedResponse(e, "event dropped due to sampling")
 		return nil
@@ -614,7 +614,7 @@ func (e *Event) Send() (err error) {
 // return an error.  Required fields are APIHost, WriteKey, and Dataset. Values
 // specified in an Event override Config.
 func (e *Event) SendPresampled() (err error) {
-	defer func() { logger.Log("Send enqueued event with fields %+v; err=%v", e.Fields(), err) }()
+	defer func() { logger.Printf("Send enqueued event with fields %+v; err=%v", e.Fields(), err) }()
 	e.lock.RLock()
 	defer e.lock.RUnlock()
 	if len(e.data) == 0 {
