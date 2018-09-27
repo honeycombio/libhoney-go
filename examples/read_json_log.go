@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/honeycombio/libhoney-go"
@@ -33,10 +34,13 @@ func main() {
 	libhConf := libhoney.Config{
 		WriteKey: honeyFakeWritekey,
 		Dataset:  honeyDataset,
+		Logger:   &libhoney.DefaultLogger{},
 	}
 	libhoney.Init(libhConf)
-	defer libhoney.Close()
-	go readResponses(libhoney.Responses())
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go readResponses(&wg, libhoney.Responses())
 
 	// We want every event to include the number of currently running goroutines
 	// and the version number of this app. The goroutines is contrived for this
@@ -72,19 +76,23 @@ func main() {
 		}
 	}
 
+	libhoney.Close()
+	wg.Wait()
 	fmt.Println("All done! Go check Honeycomb https://ui.honeycomb.io/ to see your data.")
 }
 
-func readResponses(responses chan libhoney.Response) {
+func readResponses(wg *sync.WaitGroup, responses chan libhoney.Response) {
+	// responses will be closed when libhoney is closed
 	for r := range responses {
 		if r.StatusCode >= 200 && r.StatusCode < 300 {
 			id := r.Metadata.(string)
 			fmt.Printf("Successfully sent event %s to Honeycomb\n", id)
 		} else {
-			fmt.Printf("Error sending event to Honeycomb! Code %d, err %v and response body %s",
+			fmt.Printf("Error sending event to Honeycomb! Code %d, err %v and response body %s\n",
 				r.StatusCode, r.Err, r.Body)
 		}
 	}
+	wg.Done()
 }
 
 func processLine(line string, builder *libhoney.Builder) {
