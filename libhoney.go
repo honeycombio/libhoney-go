@@ -592,7 +592,7 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 // fields are specified in neither Config nor the Event, Send will return an
 // error.  Required fields are APIHost, WriteKey, and Dataset. Values specified
 // in an Event override Config.
-func (e *Event) Send() (err error) {
+func (e *Event) Send() error {
 	if shouldDrop(e.SampleRate) {
 		logger.Printf("dropping event due to sampling")
 		sd.Increment("sampled")
