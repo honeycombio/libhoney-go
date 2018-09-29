@@ -614,7 +614,13 @@ func (e *Event) Send() error {
 // return an error.  Required fields are APIHost, WriteKey, and Dataset. Values
 // specified in an Event override Config.
 func (e *Event) SendPresampled() (err error) {
-	defer func() { logger.Printf("Send enqueued event with fields %+v; err=%v", e.Fields(), err) }()
+	defer func() {
+		if err != nil {
+			logger.Printf("Failed to send event. err: %s, event: %+v", err, e)
+		} else {
+			logger.Printf("Send enqueued event: %+v", e)
+		}
+	}()
 	e.lock.RLock()
 	defer e.lock.RUnlock()
 	if len(e.data) == 0 {
