@@ -21,6 +21,11 @@ import (
 	"time"
 
 	"gopkg.in/alexcesaro/statsd.v2"
+
+	"github.com/honeycombio/libhoney-go/api"
+	boardsAPI "github.com/honeycombio/libhoney-go/api/boards"
+	markersAPI "github.com/honeycombio/libhoney-go/api/markers"
+	triggersAPI "github.com/honeycombio/libhoney-go/api/triggers"
 )
 
 func init() {
@@ -52,6 +57,10 @@ var (
 	txOnce sync.Once
 
 	logger Logger = &nullLogger{}
+
+	boardsClient   *boardsAPI.Client
+	markersClient  *markersAPI.Client
+	triggersClient *triggersAPI.Client
 
 	blockOnResponses = false
 	sd, _            = statsd.New(statsd.Mute(true)) // init working default, to be overridden
@@ -384,6 +393,32 @@ func Init(config Config) error {
 		dynFields:  make([]dynamicField, 0, 0),
 		fieldHolder: fieldHolder{
 			data: make(map[string]interface{}),
+		},
+	}
+
+	apiClient := &http.Client{}
+	boardsClient = &boardsAPI.Client{
+		TeamScopedClient: api.TeamScopedClient{
+			APIHost:    config.APIHost,
+			WriteKey:   config.WriteKey,
+			UserAgent:  UserAgentAddition,
+			HTTPClient: apiClient,
+		},
+	}
+	markersClient = &markersAPI.Client{
+		DatasetScopedClient: api.DatasetScopedClient{
+			APIHost:    config.APIHost,
+			WriteKey:   config.WriteKey,
+			UserAgent:  UserAgentAddition,
+			HTTPClient: apiClient,
+		},
+	}
+	triggersClient = &triggersAPI.Client{
+		DatasetScopedClient: api.DatasetScopedClient{
+			APIHost:    config.APIHost,
+			WriteKey:   config.WriteKey,
+			UserAgent:  UserAgentAddition,
+			HTTPClient: apiClient,
 		},
 	}
 
@@ -763,4 +798,16 @@ func isEmptyValue(v reflect.Value) bool {
 		return v.IsNil()
 	}
 	return false
+}
+
+func Markers() *markersAPI.Client {
+	return markersClient
+}
+
+func Boards() *boardsAPI.Client {
+	return boardsClient
+}
+
+func Triggers() *triggersAPI.Client {
+	return triggersClient
 }
