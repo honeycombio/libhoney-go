@@ -101,7 +101,7 @@ func processLine(line string, builder *libhoney.Builder) {
 	data := make(map[string]interface{})
 	err := json.Unmarshal([]byte(line), &data)
 	if err != nil {
-		ev.AddField("error", err)
+		ev.AddField("error", err.Error())
 		return
 	}
 
@@ -116,7 +116,7 @@ func processLine(line string, builder *libhoney.Builder) {
 			ev.Timestamp = ts
 			delete(data, "timestamp")
 		} else {
-			ev.AddField("timestamp problem", fmt.Sprintf("problem parsing:%s", err))
+			ev.AddField("timestamp problem", fmt.Sprintf("problem parsing:%s", err.Error()))
 		}
 	} else {
 		ev.AddField("timestamp problem", "missing timestamp")
