@@ -3,6 +3,7 @@ package libhoney
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -476,4 +477,139 @@ func TestTxSendBatchMultiple(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestRenqueueEventsAfterOverflow(t *testing.T) {
+	responses = make(chan Response, 1)
+	frt := &FakeRoundTripper{}
+	b := &batchAgg{
+		httpClient: &http.Client{Transport: frt},
+		testNower:  &fakeNower{},
+	}
+
+	events := make([]*Event, 100)
+	// we make the event bodies 99KB to allow for the column name and sampleRate/Timestamp
+	// payload
+	fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
+	for i := range events {
+		events[i] = &Event{
+			fieldHolder: fieldHolder{data: fhData},
+			SampleRate:  4,
+			APIHost:     "http://fakeHost:8080",
+			WriteKey:    "written",
+			Dataset:     "ds1",
+			Metadata:    "emmetta",
+		}
+	}
+
+	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
+		if body == "" {
+			frt.resp = nil
+		} else {
+			frt.resp = &http.Response{
+				StatusCode: statusCode,
+				Body:       ioutil.NopCloser(strings.NewReader(body)),
+			}
+		}
+		frt.respErr = err
+		b.batches = nil
+	}
+
+	key := "http://fakeHost:8080_written_ds1"
+
+	reset(b, frt, 200, `[{"status":202}]`, nil)
+	b.fireBatch(events)
+	testEquals(t, len(b.overflowBatches), 1)
+	testEquals(t, len(b.overflowBatches[key]), 50)
+}
+
+type testRoundTripper struct {
+	callCount int
+}
+
+func (t *testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	t.callCount++
+
+	ioutil.ReadAll(r.Body)
+
+	return &http.Response{
+		StatusCode: 200,
+		Body:       ioutil.NopCloser(strings.NewReader(`[{"status":202}]`)),
+	}, nil
+}
+
+// Verify that events over the batch size limit are requeued and sent
+func TestFireBatchLargeEventsSent(t *testing.T) {
+	responses = make(chan Response, 1)
+
+	trt := &testRoundTripper{}
+	b := &batchAgg{
+		httpClient: &http.Client{Transport: trt},
+		testNower:  &fakeNower{},
+	}
+
+	events := make([]*Event, 150)
+	fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
+	for i := range events {
+		events[i] = &Event{
+			fieldHolder: fieldHolder{data: fhData},
+			SampleRate:  4,
+			APIHost:     "http://fakeHost:8080",
+			WriteKey:    "written",
+			Dataset:     "ds1",
+			Metadata:    "emmetta",
+		}
+		b.Add(events[i])
+	}
+
+	key := "http://fakeHost:8080_written_ds1"
+
+	b.Fire(&testNotifier{})
+	testEquals(t, len(b.overflowBatches), 0)
+	testEquals(t, len(b.overflowBatches[key]), 0)
+	testEquals(t, trt.callCount, 3)
+}
+
+// Ensure we handle events greater than the limit by enqueuing a response
+func TestFireBatchWithTooLargeEvent(t *testing.T) {
+	responses = make(chan Response, 1)
+
+	trt := &testRoundTripper{}
+	b := &batchAgg{
+		httpClient:  &http.Client{Transport: trt},
+		testNower:   &fakeNower{},
+		testBlocker: &sync.WaitGroup{},
+	}
+
+	events := make([]*Event, 1)
+	for i := range events {
+		fhData := map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)}
+		events[i] = &Event{
+			fieldHolder: fieldHolder{data: fhData},
+			SampleRate:  4,
+			APIHost:     "http://fakeHost:8080",
+			WriteKey:    "written",
+			Dataset:     "ds1",
+			Metadata:    fmt.Sprintf("meta %d", i),
+		}
+		b.Add(events[i])
+	}
+
+	key := "http://fakeHost:8080_written_ds1"
+
+	b.Fire(&testNotifier{})
+	b.testBlocker.Wait()
+	resp := testGetResponse(t, responses)
+	testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+
+	testEquals(t, len(b.overflowBatches), 0)
+	testEquals(t, len(b.overflowBatches[key]), 0)
+	testEquals(t, trt.callCount, 0)
+
+}
+
+func randomString(length int) string {
+	b := make([]byte, length/2)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)
 }
