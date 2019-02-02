@@ -608,6 +608,36 @@ func TestFireBatchWithTooLargeEvent(t *testing.T) {
 
 }
 
+func TestWriterOutput(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	writer := WriterOutput{
+		W: buf,
+	}
+	ev := Event{
+		Timestamp:  time.Time{},
+		SampleRate: 1,
+		fieldHolder: fieldHolder{
+			data: marshallableMap{},
+		},
+	}
+
+	writer.Add(&ev)
+	testEquals(t, strings.TrimSpace(buf.String()), `{"data":{}}`)
+
+	ev.Timestamp = ev.Timestamp.Add(time.Second)
+	ev.SampleRate = 2
+	ev.Dataset = "dataset"
+	ev.AddField("key", "val")
+
+	buf.Reset()
+	writer.Add(&ev)
+	testEquals(
+		t,
+		strings.TrimSpace(buf.String()),
+		`{"data":{"key":"val"},"samplerate":2,"time":"0001-01-01T00:00:01Z","dataset":"dataset"}`,
+	)
+}
+
 func randomString(length int) string {
 	b := make([]byte, length/2)
 	rand.Read(b)
