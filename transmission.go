@@ -415,10 +415,33 @@ func (w *WriterOutput) Start() error { return nil }
 func (w *WriterOutput) Stop() error  { return nil }
 
 func (w *WriterOutput) Add(ev *Event) {
+	var m []byte
+	func() {
+		ev.lock.RLock()
+		defer ev.lock.RUnlock()
+
+		tPointer := &(ev.Timestamp)
+		if ev.Timestamp.IsZero() {
+			tPointer = nil
+		}
+
+		// don't include sample rate if it's 1; this is the default
+		sampleRate := ev.SampleRate
+		if sampleRate == 1 {
+			sampleRate = 0
+		}
+
+		m, _ = json.Marshal(struct {
+			Data       marshallableMap `json:"data"`
+			SampleRate uint            `json:"samplerate,omitempty"`
+			Timestamp  *time.Time      `json:"time,omitempty"`
+			Dataset    string          `json:"dataset,omitempty"`
+		}{ev.data, sampleRate, tPointer, ev.Dataset})
+		m = append(m, '\n')
+	}()
+
 	w.Lock()
 	defer w.Unlock()
-	m, _ := ev.MarshalJSON()
-	m = append(m, '\n')
 	if w.W == nil {
 		w.W = os.Stdout
 	}
