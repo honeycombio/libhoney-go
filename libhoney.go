@@ -201,6 +201,9 @@ type Event struct {
 	// Honeycomb with the event.
 	Metadata interface{}
 
+	// Optionally holds already serialized JSON
+	DataRawMessage json.RawMessage
+
 	// fieldHolder contains fields (and methods) common to both events and builders
 	fieldHolder
 }
@@ -220,6 +223,14 @@ func (e *Event) MarshalJSON() ([]byte, error) {
 	sampleRate := e.SampleRate
 	if sampleRate == 1 {
 		sampleRate = 0
+	}
+
+	if e.DataRawMessage != nil {
+		return json.Marshal(struct {
+			Data       json.RawMessage `json:"data"`
+			SampleRate uint            `json:"samplerate,omitempty"`
+			Timestamp  *time.Time      `json:"time,omitempty"`
+		}{e.DataRawMessage, sampleRate, tPointer})
 	}
 
 	return json.Marshal(struct {
@@ -623,7 +634,7 @@ func (e *Event) SendPresampled() (err error) {
 	}()
 	e.lock.RLock()
 	defer e.lock.RUnlock()
-	if len(e.data) == 0 {
+	if len(e.data) == 0 && e.DataRawMessage == nil {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
 	if e.APIHost == "" {

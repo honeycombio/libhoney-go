@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -237,6 +238,63 @@ func TestTxSendSingle(t *testing.T) {
 	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
 	rsp = testGetResponse(t, responses)
+	testEquals(t, rsp.Duration, time.Second*10)
+	testEquals(t, rsp.Metadata, "emmetta")
+	testEquals(t, rsp.StatusCode, 202)
+	testOK(t, rsp.Err)
+}
+
+func TestTxSendSingleRawMessage(t *testing.T) {
+	responses = make(chan Response, 1)
+	frt := &FakeRoundTripper{}
+	b := &batchAgg{
+		httpClient:  &http.Client{Transport: frt},
+		testNower:   &fakeNower{},
+		testBlocker: &sync.WaitGroup{},
+	}
+	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
+		if body == "" {
+			frt.resp = nil
+		} else {
+			frt.resp = &http.Response{
+				StatusCode: statusCode,
+				Body:       ioutil.NopCloser(strings.NewReader(body)),
+			}
+		}
+		frt.respErr = err
+		b.batches = nil
+	}
+
+	var rawData json.RawMessage
+
+	err := json.Unmarshal([]byte(`{"raw": "message"}`), &rawData)
+	testOK(t, err)
+	fhData := map[string]interface{}{"foo": "bar"}
+	e := &Event{
+		DataRawMessage: rawData,
+		fieldHolder:    fieldHolder{data: fhData}, // this gets ignored
+		SampleRate:     4,
+		APIHost:        "http://fakeHost:8080",
+		WriteKey:       "written",
+		Dataset:        "ds1",
+		Metadata:       "emmetta",
+	}
+	reset(b, frt, 200, `[{"status":202}]`, nil)
+	b.Add(e)
+	b.Fire(&testNotifier{})
+	expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
+	testEquals(t, frt.req.URL.String(), expectedURL)
+	versionedUserAgent := fmt.Sprintf("libhoney-go/%s", version)
+	testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
+	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.WriteKey)
+	buf := &bytes.Buffer{}
+	g := gzip.NewWriter(buf)
+	_, err = g.Write([]byte(`[{"data":{"raw":"message"},"samplerate":4}]`))
+	testOK(t, err)
+	testOK(t, g.Close())
+	testEquals(t, frt.reqBody, buf.String())
+
+	rsp := testGetResponse(t, responses)
 	testEquals(t, rsp.Duration, time.Second*10)
 	testEquals(t, rsp.Metadata, "emmetta")
 	testEquals(t, rsp.StatusCode, 202)
