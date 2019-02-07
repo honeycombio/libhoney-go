@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/alexcesaro/statsd.v2"
+	statsd "gopkg.in/alexcesaro/statsd.v2"
 )
 
 func init() {
@@ -30,7 +30,7 @@ func init() {
 const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
-	version           = "1.8.2"
+	version           = "1.9.0"
 
 	// DefaultMaxBatchSize how many events to collect in a batch
 	DefaultMaxBatchSize = 50
@@ -48,23 +48,27 @@ var (
 
 // globals to support default/singleton-like behavior
 var (
-	tx     Output
-	txOnce sync.Once
+	txOnce      sync.Once
+	builderOnce sync.Once
 
-	logger Logger = &nullLogger{}
-
-	blockOnResponses = false
-	sd, _            = statsd.New(statsd.Mute(true)) // init working default, to be overridden
-	responses        = make(chan Response, 2*DefaultPendingWorkCapacity)
-	defaultBuilder   = &Builder{
-		APIHost:    defaultAPIHost,
-		SampleRate: defaultSampleRate,
-		dynFields:  make([]dynamicField, 0, 0),
-		fieldHolder: fieldHolder{
-			data: make(map[string]interface{}),
+	dc = &defaultClient{
+		tx: &txDefaultClient{
+			maxBatchSize:         DefaultMaxBatchSize,
+			batchTimeout:         DefaultBatchTimeout,
+			maxConcurrentBatches: DefaultMaxConcurrentBatches,
+			pendingWorkCapacity:  DefaultPendingWorkCapacity,
+			blockOnSend:          false,
+			blockOnResponses:     false,
+			logger:               &nullLogger{},
 		},
+		logger:    &nullLogger{},
+		responses: make(chan Response, 2*DefaultPendingWorkCapacity),
+		// builder lazily created the first time it's needed
 	}
 )
+
+// default is a mute statsd; intended to be overridden
+var sd, _ = statsd.New(statsd.Mute(true))
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
@@ -96,8 +100,6 @@ type Config struct {
 	// APIHost is the hostname for the Honeycomb API server to which to send this
 	// event. default: https://api.honeycomb.io/
 	APIHost string
-
-	// TODO add logger in an agnostic way
 
 	// BlockOnSend determines if libhoney should block or drop packets that exceed
 	// the size of the send channel (set by PendingWorkCapacity). Defaults to
@@ -136,13 +138,19 @@ type Config struct {
 	// Intended for human consumption during development to understand what the
 	// SDK is doing and diagnose trouble emitting events.
 	Logger Logger
+
+	// UserAgentAddition is a string that gets appended to the default HTTP
+	// User-Agent for all events emitted. You can set this at a package level or
+	// on a per-client basis. If set in both places, both additions will be
+	// added (package level first, config second)
+	UserAgentAddition string
 }
 
 // VerifyWriteKey calls out to the Honeycomb API to validate the write key, so
 // we can exit immediately if desired instead of happily sending events that
 // are all rejected.
 func VerifyWriteKey(config Config) (team string, err error) {
-	defer func() { logger.Printf("verify write key got back %s with err=%s", team, err) }()
+	defer func() { dc.logger.Printf("verify write key got back %s with err=%s", team, err) }()
 	if config.WriteKey == "" {
 		return team, errors.New("Write key is empty")
 	}
@@ -203,6 +211,9 @@ type Event struct {
 
 	// fieldHolder contains fields (and methods) common to both events and builders
 	fieldHolder
+
+	// client is the Client to use to send events generated from this builder
+	client *defaultClient
 }
 
 // Marshaling an Event for batching up to the Honeycomb servers. Omits fields
@@ -247,6 +258,9 @@ type Builder struct {
 	// any dynamic fields to apply to each generated event
 	dynFields     []dynamicField
 	dynFieldsLock sync.RWMutex
+
+	// client is the Client to use to send events generated from this builder
+	client *defaultClient
 }
 
 type fieldHolder struct {
@@ -324,39 +338,17 @@ type dynamicField struct {
 //
 // Make sure to call Close() to flush buffers.
 func Init(config Config) error {
-	// Default sample rate should be 1. 0 is invalid.
-	if config.SampleRate == 0 {
-		config.SampleRate = defaultSampleRate
-	}
-	if config.APIHost == "" {
-		config.APIHost = defaultAPIHost
-	}
-	if config.MaxBatchSize == 0 {
-		config.MaxBatchSize = DefaultMaxBatchSize
-	}
-	if config.SendFrequency == 0 {
-		config.SendFrequency = DefaultBatchTimeout
-	}
-	if config.MaxConcurrentBatches == 0 {
-		config.MaxConcurrentBatches = DefaultMaxConcurrentBatches
-	}
-	if config.PendingWorkCapacity == 0 {
-		config.PendingWorkCapacity = DefaultPendingWorkCapacity
-	}
-	if config.Logger == nil {
-		config.Logger = &nullLogger{}
-	}
+	// sanitize config and set empty elements to their defaults
+	setConfigDefaults(&config)
 
-	blockOnResponses = config.BlockOnResponse
-
-	logger = config.Logger
-	logger.Printf("initializing libhoney")
-	logger.Printf("libhoney configuration: %+v", config)
+	dc.logger = config.Logger
+	dc.logger.Printf("initializing libhoney")
+	dc.logger.Printf("libhoney configuration: %+v", config)
 
 	if config.Output == nil {
-		logger.Printf("Using default transmission client")
+		dc.logger.Printf("Using default transmission client")
 		// reset the global transmission
-		tx = &txDefaultClient{
+		dc.tx = &txDefaultClient{
 			maxBatchSize:         config.MaxBatchSize,
 			batchTimeout:         config.SendFrequency,
 			maxConcurrentBatches: config.MaxConcurrentBatches,
@@ -364,19 +356,20 @@ func Init(config Config) error {
 			blockOnSend:          config.BlockOnSend,
 			blockOnResponses:     config.BlockOnResponse,
 			transport:            config.Transport,
+			logger:               dc.logger,
 		}
 	} else {
-		tx = config.Output
+		dc.tx = config.Output
 	}
-	if err := tx.Start(); err != nil {
-		logger.Printf("transmission client failed to start: %s", err.Error())
+	if err := dc.tx.Start(); err != nil {
+		dc.logger.Printf("transmission client failed to start: %s", err.Error())
 		return err
 	}
 
 	sd, _ = statsd.New(statsd.Prefix("libhoney"))
-	responses = make(chan Response, config.PendingWorkCapacity*2)
+	dc.responses = make(chan Response, config.PendingWorkCapacity*2)
 
-	defaultBuilder = &Builder{
+	dc.defaultBuilder = &Builder{
 		WriteKey:   config.WriteKey,
 		Dataset:    config.Dataset,
 		SampleRate: config.SampleRate,
@@ -385,19 +378,48 @@ func Init(config Config) error {
 		fieldHolder: fieldHolder{
 			data: make(map[string]interface{}),
 		},
+		client: dc,
 	}
 
 	return nil
 }
 
+// setConfigDefaults takes a config object and sets any unset elemenst to their
+// defaults. Mutates the passed in config object.
+func setConfigDefaults(conf *Config) {
+	// Default sample rate should be 1. 0 is invalid.
+	if conf.SampleRate == 0 {
+		conf.SampleRate = defaultSampleRate
+	}
+	if conf.APIHost == "" {
+		conf.APIHost = defaultAPIHost
+	}
+	if conf.MaxBatchSize == 0 {
+		conf.MaxBatchSize = DefaultMaxBatchSize
+	}
+	if conf.SendFrequency == 0 {
+		conf.SendFrequency = DefaultBatchTimeout
+	}
+	if conf.MaxConcurrentBatches == 0 {
+		conf.MaxConcurrentBatches = DefaultMaxConcurrentBatches
+	}
+	if conf.PendingWorkCapacity == 0 {
+		conf.PendingWorkCapacity = DefaultPendingWorkCapacity
+	}
+	if conf.Logger == nil {
+		conf.Logger = &nullLogger{}
+	}
+
+}
+
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
 func Close() {
-	logger.Printf("closing libhoney")
-	if tx != nil {
-		tx.Stop()
+	dc.logger.Printf("closing libhoney")
+	if dc.tx != nil {
+		dc.tx.Stop()
 	}
-	close(responses)
+	close(dc.responses)
 }
 
 // Flush closes and reopens the Output interface, ensuring events
@@ -408,10 +430,10 @@ func Close() {
 // Flush is not thread safe - use it only when you are sure that no other
 // parts of your program are calling Send
 func Flush() {
-	logger.Printf("flushing libhoney")
-	if tx != nil {
-		tx.Stop()
-		tx.Start()
+	dc.logger.Printf("flushing libhoney")
+	if dc.tx != nil {
+		dc.tx.Stop()
+		dc.tx.Start()
 	}
 }
 
@@ -428,14 +450,14 @@ func SendNow(data interface{}) error {
 		return err
 	}
 	err := ev.Send()
-	logger.Printf("SendNow enqueued event, err=%v", err)
+	dc.logger.Printf("SendNow enqueued event, err=%v", err)
 	return err
 }
 
 // Responses returns the channel from which the caller can read the responses
 // to sent events.
 func Responses() chan Response {
-	return responses
+	return dc.responses
 }
 
 // AddDynamicField takes a field name and a function that will generate values
@@ -443,26 +465,71 @@ func Responses() chan Response {
 // created and added as a field (with name as the key) to the newly created
 // event.
 func AddDynamicField(name string, fn func() interface{}) error {
-	return defaultBuilder.AddDynamicField(name, fn)
+	ensureDefaultBuilder()
+	return dc.defaultBuilder.AddDynamicField(name, fn)
 }
 
 // AddField adds a Field to the global scope. This metric will be inherited by
 // all builders and events.
 func AddField(name string, val interface{}) {
-	defaultBuilder.AddField(name, val)
+	ensureDefaultBuilder()
+	dc.defaultBuilder.AddField(name, val)
 }
 
 // Add adds its data to the global scope. It adds all fields in a struct or all
 // keys in a map as individual Fields. These metrics will be inherited by all
 // builders and events.
 func Add(data interface{}) error {
-	return defaultBuilder.Add(data)
+	ensureDefaultBuilder()
+	return dc.defaultBuilder.Add(data)
 }
 
 // NewEvent creates a new event prepopulated with any Fields present in the
 // global scope.
 func NewEvent() *Event {
-	return defaultBuilder.NewEvent()
+	ensureDefaultBuilder()
+	startTx()
+	return dc.defaultBuilder.NewEvent()
+}
+
+// NewBuilder creates a new event builder. The builder inherits any
+// Dynamic or Static Fields present in the global scope.
+func NewBuilder() *Builder {
+	ensureDefaultBuilder()
+	startTx()
+	return dc.defaultBuilder.Clone()
+}
+
+func ensureDefaultBuilder() {
+	builderOnce.Do(func() {
+		if dc.defaultBuilder == nil {
+			dc.defaultBuilder = &Builder{
+				APIHost:    defaultAPIHost,
+				SampleRate: defaultSampleRate,
+				dynFields:  make([]dynamicField, 0, 0),
+				fieldHolder: fieldHolder{
+					data: make(map[string]interface{}),
+				},
+				client: dc,
+			}
+		}
+	})
+}
+
+// startTx starts the default transmission if it hasn't happened yet.
+func startTx() {
+	txOnce.Do(func() {
+		if dc.tx == nil {
+			dc.tx = &txDefaultClient{
+				maxBatchSize:         DefaultMaxBatchSize,
+				batchTimeout:         DefaultBatchTimeout,
+				maxConcurrentBatches: DefaultMaxConcurrentBatches,
+				pendingWorkCapacity:  DefaultPendingWorkCapacity,
+				logger:               dc.logger,
+			}
+			dc.tx.Start()
+		}
+	})
 }
 
 // AddField adds an individual metric to the event or builder on which it is
@@ -594,9 +661,9 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 // in an Event override Config.
 func (e *Event) Send() error {
 	if shouldDrop(e.SampleRate) {
-		logger.Printf("dropping event due to sampling")
+		e.client.logger.Printf("dropping event due to sampling")
 		sd.Increment("sampled")
-		sendDroppedResponse(e, "event dropped due to sampling")
+		e.client.sendDroppedResponse(e, "event dropped due to sampling")
 		return nil
 	}
 	return e.SendPresampled()
@@ -616,9 +683,9 @@ func (e *Event) Send() error {
 func (e *Event) SendPresampled() (err error) {
 	defer func() {
 		if err != nil {
-			logger.Printf("Failed to send event. err: %s, event: %+v", err, e)
+			e.client.logger.Printf("Failed to send event. err: %s, event: %+v", err, e)
 		} else {
-			logger.Printf("Send enqueued event: %+v", e)
+			e.client.logger.Printf("Send enqueued event: %+v", e)
 		}
 	}()
 	e.lock.RLock()
@@ -636,19 +703,7 @@ func (e *Event) SendPresampled() (err error) {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
 	}
 
-	txOnce.Do(func() {
-		if tx == nil {
-			tx = &txDefaultClient{
-				maxBatchSize:         DefaultMaxBatchSize,
-				batchTimeout:         DefaultBatchTimeout,
-				maxConcurrentBatches: DefaultMaxConcurrentBatches,
-				pendingWorkCapacity:  DefaultPendingWorkCapacity,
-			}
-			tx.Start()
-		}
-	})
-
-	tx.Add(e)
+	e.client.tx.Add(e)
 	return nil
 }
 
@@ -658,18 +713,14 @@ func sendDroppedResponse(e *Event, message string) {
 		Err:      errors.New(message),
 		Metadata: e.Metadata,
 	}
-	writeToResponse(r, blockOnResponses)
+	e.client.logger.Printf("got response code %d, error %s, and body %s",
+		r.StatusCode, r.Err, string(r.Body))
+	writeToResponse(e.client.responses, r, e.client.conf.BlockOnResponse)
 }
 
 // returns true if the sample should be dropped
 func shouldDrop(rate uint) bool {
 	return rand.Intn(int(rate)) != 0
-}
-
-// NewBuilder creates a new event builder. The builder inherits any
-// Dynamic or Static Fields present in the global scope.
-func NewBuilder() *Builder {
-	return defaultBuilder.Clone()
 }
 
 // AddDynamicField adds a dynamic field to the builder. Any events
@@ -710,6 +761,7 @@ func (b *Builder) NewEvent() *Event {
 		SampleRate: b.SampleRate,
 		APIHost:    b.APIHost,
 		Timestamp:  time.Now(),
+		client:     b.client,
 	}
 	e.data = make(map[string]interface{})
 
@@ -736,6 +788,7 @@ func (b *Builder) Clone() *Builder {
 		SampleRate: b.SampleRate,
 		APIHost:    b.APIHost,
 		dynFields:  make([]dynamicField, 0, len(b.dynFields)),
+		client:     b.client,
 	}
 	newB.data = make(map[string]interface{})
 	b.lock.RLock()

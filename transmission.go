@@ -50,38 +50,45 @@ type txDefaultClient struct {
 	pendingWorkCapacity  uint          // how many events to allow to pile up
 	blockOnSend          bool          // whether to block or drop events when the queue fills
 	blockOnResponses     bool          // whether to block or drop responses when the queue fills
+	userAgentAddition    string
+
+	responses chan Response
 
 	transport http.RoundTripper
 
 	muster muster.Client
+
+	logger Logger
 }
 
 func (t *txDefaultClient) Start() error {
-	logger.Printf("default transmission starting")
+	t.logger.Printf("default transmission starting")
 	t.muster.MaxBatchSize = t.maxBatchSize
 	t.muster.BatchTimeout = t.batchTimeout
 	t.muster.MaxConcurrentBatches = t.maxConcurrentBatches
 	t.muster.PendingWorkCapacity = t.pendingWorkCapacity
 	t.muster.BatchMaker = func() muster.Batch {
 		return &batchAgg{
-			batches: map[string][]*Event{},
+			userAgentAddition: t.userAgentAddition,
+			batches:           map[string][]*Event{},
 			httpClient: &http.Client{
 				Transport: t.transport,
 				Timeout:   10 * time.Second,
 			},
 			blockOnResponses: t.blockOnResponses,
+			responses:        t.responses,
 		}
 	}
 	return t.muster.Start()
 }
 
 func (t *txDefaultClient) Stop() error {
-	logger.Printf("default transmission stopping")
+	t.logger.Printf("default transmission stopping")
 	return t.muster.Stop()
 }
 
 func (t *txDefaultClient) Add(ev *Event) {
-	logger.Printf("adding event to transmission; queue length %d", len(t.muster.Work))
+	t.logger.Printf("adding event to transmission; queue length %d", len(t.muster.Work))
 	sd.Gauge("queue_length", len(t.muster.Work))
 	if t.blockOnSend {
 		t.muster.Work <- ev
@@ -96,7 +103,9 @@ func (t *txDefaultClient) Add(ev *Event) {
 				Err:      errors.New("queue overflow"),
 				Metadata: ev.Metadata,
 			}
-			writeToResponse(r, t.blockOnResponses)
+			t.logger.Printf("got response code %d, error %s, and body %s",
+				r.StatusCode, r.Err, string(r.Body))
+			writeToResponse(t.responses, r, t.blockOnResponses)
 		}
 	}
 }
@@ -107,9 +116,12 @@ type batchAgg struct {
 	// map of batch key to a list of events destined for that batch
 	batches map[string][]*Event
 	// Used to reenque events when an initial batch is too large
-	overflowBatches  map[string][]*Event
-	httpClient       *http.Client
-	blockOnResponses bool
+	overflowBatches   map[string][]*Event
+	httpClient        *http.Client
+	blockOnResponses  bool
+	userAgentAddition string
+
+	responses chan Response
 	// numEncoded       int
 
 	// allows manipulation of the value of "now" for testing
@@ -134,7 +146,7 @@ func (b *batchAgg) Add(ev interface{}) {
 }
 
 func (b *batchAgg) enqueueResponse(resp Response) {
-	if writeToResponse(resp, b.blockOnResponses) {
+	if writeToResponse(b.responses, resp, b.blockOnResponses) {
 		if b.testBlocker != nil {
 			b.testBlocker.Done()
 		}
@@ -216,6 +228,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	userAgent := fmt.Sprintf("libhoney-go/%s", version)
 	if UserAgentAddition != "" {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
+	}
+	if b.userAgentAddition != "" {
+		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
 	}
 
 	// build the HTTP request
