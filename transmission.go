@@ -473,7 +473,10 @@ func (d *DiscardOutput) Add(ev *Event) {}
 // MockOutput implements the Output interface by retaining a slice of added
 // events, for use in unit tests.
 type MockOutput struct {
-	events []*Event
+	started      int
+	stopped      int
+	eventsCalled int
+	events       []*Event
 	sync.Mutex
 }
 
@@ -483,10 +486,17 @@ func (m *MockOutput) Add(ev *Event) {
 	m.Unlock()
 }
 
-func (m *MockOutput) Start() error { return nil }
-func (m *MockOutput) Stop() error  { return nil }
+func (m *MockOutput) Start() error {
+	m.started += 1
+	return nil
+}
+func (m *MockOutput) Stop() error {
+	m.stopped += 1
+	return nil
+}
 
 func (m *MockOutput) Events() []*Event {
+	m.eventsCalled += 1
 	m.Lock()
 	defer m.Unlock()
 	output := make([]*Event, len(m.events))

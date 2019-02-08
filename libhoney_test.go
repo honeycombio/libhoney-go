@@ -15,14 +15,29 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"gopkg.in/alexcesaro/statsd.v2"
+	statsd "gopkg.in/alexcesaro/statsd.v2"
 )
 
 // because package level vars get initialized on package inclusion, subsequent
 // tests interact with the same variables in a way that is not like how it
 // would be used. This function resets things to a blank state.
 func resetPackageVars() {
-	defaultBuilder = &Builder{}
+	dc = &defaultClient{
+		tx:        &MockOutput{},
+		logger:    &nullLogger{},
+		responses: make(chan Response, 20),
+	}
+	dc.defaultBuilder = &Builder{
+		WriteKey:   "twerk",
+		Dataset:    "twdds",
+		SampleRate: 1,
+		APIHost:    "http://localhost:1234",
+		dynFields:  make([]dynamicField, 0, 0),
+		fieldHolder: fieldHolder{
+			data: make(map[string]interface{}),
+		},
+		client: dc,
+	}
 	sd, _ = statsd.New(statsd.Mute(true))
 }
 
@@ -36,12 +51,12 @@ func TestLibhoney(t *testing.T) {
 	}
 	err := Init(conf)
 	testOK(t, err)
-	testEquals(t, cap(responses), 2*DefaultPendingWorkCapacity)
+	testEquals(t, cap(dc.responses), 2*DefaultPendingWorkCapacity)
 }
 
 func TestCloseWithoutInit(t *testing.T) {
 	// before Init() is called, tx is an unpopulated nil interface
-	tx = nil
+	dc.tx = nil
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("recover should not have caught anything: got %v", r)
@@ -414,7 +429,7 @@ func TestBuilderDynFields(t *testing.T) {
 	AddDynamicField("ints", myIntFn)
 	b := NewBuilder()
 	b.AddDynamicField("strs", myStrFn)
-	testEquals(t, len(defaultBuilder.dynFields), 1)
+	testEquals(t, len(dc.defaultBuilder.dynFields), 1)
 	testEquals(t, len(b.dynFields), 2)
 
 	ev1 := NewEvent()
@@ -513,7 +528,7 @@ func TestSendPresampledErrors(t *testing.T) {
 		expErr error
 	}{
 		{
-			ev:     &Event{},
+			ev:     &Event{client: dc},
 			expErr: errors.New("No metrics added to event. Won't send empty event."),
 		},
 		{
@@ -521,6 +536,7 @@ func TestSendPresampledErrors(t *testing.T) {
 				fieldHolder: fieldHolder{
 					data: map[string]interface{}{"a": 1},
 				},
+				client: dc,
 			},
 			expErr: errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown."),
 		},
@@ -530,6 +546,7 @@ func TestSendPresampledErrors(t *testing.T) {
 					data: map[string]interface{}{"a": 1},
 				},
 				APIHost: "foo",
+				client:  dc,
 			},
 			expErr: errors.New("No WriteKey specified. Can't send event."),
 		},
@@ -540,6 +557,7 @@ func TestSendPresampledErrors(t *testing.T) {
 				},
 				APIHost:  "foo",
 				WriteKey: "bar",
+				client:   dc,
 			},
 			expErr: errors.New("No Dataset for Honeycomb. Can't send datasetless."),
 		},
@@ -551,6 +569,7 @@ func TestSendPresampledErrors(t *testing.T) {
 				APIHost:  "foo",
 				WriteKey: "bar",
 				Dataset:  "baz",
+				client:   dc,
 			},
 			expErr: nil,
 		},
@@ -568,7 +587,7 @@ func TestPresampledSendSamplerate(t *testing.T) {
 	testTx := &MockOutput{}
 	testTx.Start()
 
-	tx = testTx
+	dc.tx = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -578,6 +597,7 @@ func TestPresampledSendSamplerate(t *testing.T) {
 		WriteKey:   "bar",
 		Dataset:    "baz",
 		SampleRate: 5,
+		client:     dc,
 	}
 
 	for i := 0; i < 5; i++ {
@@ -597,7 +617,7 @@ func TestSendSamplerate(t *testing.T) {
 	testTx.Start()
 	rand.Seed(1)
 
-	tx = testTx
+	dc.tx = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -607,6 +627,7 @@ func TestSendSamplerate(t *testing.T) {
 		WriteKey:   "bar",
 		Dataset:    "baz",
 		SampleRate: 2,
+		client:     dc,
 	}
 	for i := 0; i < 10; i++ {
 		err := ev.Send()
@@ -636,8 +657,8 @@ func TestSendTestTransport(t *testing.T) {
 	})
 
 	err := SendNow(map[string]interface{}{"foo": 3})
-	tx.Stop()  // flush unsent events
-	tx.Start() // reopen tx.muster channel
+	dc.tx.Stop()  // flush unsent events
+	dc.tx.Start() // reopen tx.muster channel
 	testOK(t, err)
 	testEquals(t, tr.invoked, true)
 }
@@ -785,7 +806,7 @@ func TestDataRace3(t *testing.T) {
 	})
 	testTx.Start()
 
-	tx = testTx
+	dc.tx = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -795,6 +816,7 @@ func TestDataRace3(t *testing.T) {
 		WriteKey:   "bar",
 		Dataset:    "baz",
 		SampleRate: 1,
+		client:     dc,
 	}
 
 	var wg sync.WaitGroup

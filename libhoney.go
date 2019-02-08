@@ -51,6 +51,7 @@ var (
 	txOnce      sync.Once
 	builderOnce sync.Once
 
+	// singleton-like client used if you use package-level functions
 	dc = &defaultClient{
 		tx: &txDefaultClient{
 			maxBatchSize:         DefaultMaxBatchSize,
