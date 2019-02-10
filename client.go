@@ -31,10 +31,12 @@ func NewClient(conf Config) (Client, error) {
 
 	c := &defaultClient{
 		conf:   conf,
+		tx:     conf.Output,
 		logger: conf.Logger,
 	}
 
-	if conf.Output == nil {
+	c.responses = make(chan Response, conf.PendingWorkCapacity*2)
+	if c.tx == nil {
 		// use default Honeycomb output
 		c.tx = &txDefaultClient{
 			maxBatchSize:         conf.MaxBatchSize,
@@ -44,17 +46,14 @@ func NewClient(conf Config) (Client, error) {
 			blockOnSend:          conf.BlockOnSend,
 			blockOnResponses:     conf.BlockOnResponse,
 			transport:            conf.Transport,
+			responses:            c.responses,
 			logger:               conf.Logger,
 		}
-	} else {
-		c.tx = conf.Output
 	}
 	if err := c.tx.Start(); err != nil {
 		c.logger.Printf("transmission client failed to start: %s", err.Error())
 		return nil, err
 	}
-
-	c.responses = make(chan Response, conf.PendingWorkCapacity*2)
 
 	c.defaultBuilder = &Builder{
 		WriteKey:   conf.WriteKey,

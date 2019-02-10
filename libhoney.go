@@ -703,17 +703,6 @@ func (e *Event) SendPresampled() (err error) {
 	return nil
 }
 
-// sendResponse sends a dropped event response down the response channel
-func sendDroppedResponse(e *Event, message string) {
-	r := Response{
-		Err:      errors.New(message),
-		Metadata: e.Metadata,
-	}
-	e.client.logger.Printf("got response code %d, error %s, and body %s",
-		r.StatusCode, r.Err, string(r.Body))
-	writeToResponse(e.client.responses, r, e.client.conf.BlockOnResponse)
-}
-
 // returns true if the sample should be dropped
 func shouldDrop(rate uint) bool {
 	return rand.Intn(int(rate)) != 0
