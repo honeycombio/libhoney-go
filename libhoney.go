@@ -53,15 +53,7 @@ var (
 
 	// singleton-like client used if you use package-level functions
 	dc = &defaultClient{
-		tx: &txDefaultClient{
-			maxBatchSize:         DefaultMaxBatchSize,
-			batchTimeout:         DefaultBatchTimeout,
-			maxConcurrentBatches: DefaultMaxConcurrentBatches,
-			pendingWorkCapacity:  DefaultPendingWorkCapacity,
-			blockOnSend:          false,
-			blockOnResponses:     false,
-			logger:               &nullLogger{},
-		},
+		// tx lazily created and started the first time it's needed
 		logger:    &nullLogger{},
 		responses: make(chan Response, 2*DefaultPendingWorkCapacity),
 		// builder lazily created the first time it's needed
@@ -346,6 +338,8 @@ func Init(config Config) error {
 	dc.logger.Printf("initializing libhoney")
 	dc.logger.Printf("libhoney configuration: %+v", config)
 
+	dc.responses = make(chan Response, config.PendingWorkCapacity*2)
+
 	if config.Output == nil {
 		dc.logger.Printf("Using default transmission client")
 		// reset the global transmission
@@ -356,6 +350,7 @@ func Init(config Config) error {
 			pendingWorkCapacity:  config.PendingWorkCapacity,
 			blockOnSend:          config.BlockOnSend,
 			blockOnResponses:     config.BlockOnResponse,
+			responses:            dc.responses,
 			transport:            config.Transport,
 			logger:               dc.logger,
 		}
@@ -368,7 +363,6 @@ func Init(config Config) error {
 	}
 
 	sd, _ = statsd.New(statsd.Prefix("libhoney"))
-	dc.responses = make(chan Response, config.PendingWorkCapacity*2)
 
 	dc.defaultBuilder = &Builder{
 		WriteKey:   config.WriteKey,
@@ -526,6 +520,7 @@ func startTx() {
 				batchTimeout:         DefaultBatchTimeout,
 				maxConcurrentBatches: DefaultMaxConcurrentBatches,
 				pendingWorkCapacity:  DefaultPendingWorkCapacity,
+				responses:            dc.responses,
 				logger:               dc.logger,
 			}
 			dc.tx.Start()

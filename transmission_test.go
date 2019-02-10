@@ -29,6 +29,7 @@ func TestTxAdd(t *testing.T) {
 	txDC.muster.Work = make(chan interface{}, 1)
 	dc.responses = make(chan Response, 1)
 	dc.responses <- placeholder
+	txDC.responses = dc.responses
 
 	// default successful case
 	e := &Event{Metadata: "mmeetta", client: dc}
@@ -99,12 +100,12 @@ func (tn *testNotifier) Done() {}
 
 // test the mechanics of sending / receiving responses
 func TestTxSendSingle(t *testing.T) {
-	dc.responses = make(chan Response, 1)
 	frt := &FakeRoundTripper{}
 	b := &batchAgg{
 		httpClient:  &http.Client{Transport: frt},
 		testNower:   &fakeNower{},
 		testBlocker: &sync.WaitGroup{},
+		responses:   make(chan Response, 1),
 	}
 	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
 		if body == "" {
@@ -143,7 +144,7 @@ func TestTxSendSingle(t *testing.T) {
 	testOK(t, g.Close())
 	testEquals(t, frt.reqBody, buf.String())
 
-	rsp := testGetResponse(t, dc.responses)
+	rsp := testGetResponse(t, b.responses)
 	testEquals(t, rsp.Duration, time.Second*10)
 	testEquals(t, rsp.Metadata, "emmetta")
 	testEquals(t, rsp.StatusCode, 202)
@@ -157,7 +158,7 @@ func TestTxSendSingle(t *testing.T) {
 	b.Add(e)
 	b.Fire(&testNotifier{})
 	testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testEquals(t, rsp.StatusCode, 202)
 	testOK(t, rsp.Err)
 	UserAgentAddition = ""
@@ -166,32 +167,32 @@ func TestTxSendSingle(t *testing.T) {
 	reset(b, frt, 0, "", errors.New("testing error handling"))
 	b.Add(e)
 	b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
 
 	// test nonblocking response path is actually nonblocking, drops response
-	dc.responses <- placeholder
+	b.responses <- placeholder
 	reset(b, frt, 0, "", errors.New("err"))
 	b.testBlocker.Add(1)
 	b.Add(e)
 	go b.Fire(&testNotifier{})
 	b.testBlocker.Wait() // triggered on drop
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response and only placeholder response off channel")
 
 	// test blocking response path, error
 	b.blockOnResponses = true
 	reset(b, frt, 0, "", errors.New("err"))
-	dc.responses <- placeholder
+	b.responses <- placeholder
 	b.Add(e)
 	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.StatusCode, 0)
 	testEquals(t, len(rsp.Body), 0)
@@ -199,13 +200,13 @@ func TestTxSendSingle(t *testing.T) {
 	// test blocking response path, request completed but got HTTP error code
 	b.blockOnResponses = true
 	reset(b, frt, 400, `{"error":"unknown Team key - check your credentials"}`, nil)
-	dc.responses <- placeholder
+	b.responses <- placeholder
 	b.Add(e)
 	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testEquals(t, rsp.StatusCode, 400)
 	testEquals(t, string(rsp.Body), `{"error":"unknown Team key - check your credentials"}`)
 
@@ -219,24 +220,24 @@ func TestTxSendSingle(t *testing.T) {
 	}
 	frt.respErr = nil
 	b.batches = nil
-	dc.responses <- placeholder
+	b.responses <- placeholder
 	b.Add(e)
 	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testEquals(t, rsp.Err, errors.New("Got HTTP error code but couldn't read response body: mystery read error!"))
 
 	// test blocking response path, no error
-	dc.responses <- placeholder
+	b.responses <- placeholder
 	reset(b, frt, 200, `[{"status":202}]`, nil)
 	b.Add(e)
 	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testIsPlaceholderResponse(t, rsp,
 		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, b.responses)
 	testEquals(t, rsp.Duration, time.Second*10)
 	testEquals(t, rsp.Metadata, "emmetta")
 	testEquals(t, rsp.StatusCode, 202)
@@ -285,8 +286,10 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 	}
 
 	for _, tt := range tsts {
-		b := &batchAgg{httpClient: &http.Client{Transport: frt}}
-		dc.responses = make(chan Response, len(tt.expected))
+		b := &batchAgg{
+			httpClient: &http.Client{Transport: frt},
+			responses:  make(chan Response, len(tt.expected)),
+		}
 		frt.resp.Body = ioutil.NopCloser(strings.NewReader(tt.response))
 		for i, data := range tt.in {
 			b.Add(&Event{
@@ -299,7 +302,7 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 		}
 		b.Fire(&testNotifier{})
 		for _, expResp := range tt.expected {
-			resp := testGetResponse(t, dc.responses)
+			resp := testGetResponse(t, b.responses)
 			testEquals(t, resp.StatusCode, expResp.StatusCode)
 			testEquals(t, resp.Metadata, expResp.Metadata)
 			if expResp.Err != nil {
@@ -430,8 +433,10 @@ func TestTxSendBatchMultiple(t *testing.T) {
 	}
 
 	for _, tt := range tsts {
-		b := &batchAgg{httpClient: &http.Client{Transport: ffrt}}
-		dc.responses = make(chan Response, len(tt.expected))
+		b := &batchAgg{
+			httpClient: &http.Client{Transport: ffrt},
+			responses:  make(chan Response, len(tt.expected)),
+		}
 		ffrt.reqBodies = tt.expReqBodies
 		ffrt.respBodies = tt.respBodies
 		// insert events in sorted order to check responses
@@ -458,7 +463,7 @@ func TestTxSendBatchMultiple(t *testing.T) {
 		// go through the right number of expected responses, look for matches
 		for range tt.expected {
 			var found bool
-			resp := testGetResponse(t, dc.responses)
+			resp := testGetResponse(t, b.responses)
 			for meta, expResp := range tt.expected {
 				if meta == resp.Metadata {
 					found = true
@@ -480,11 +485,11 @@ func TestTxSendBatchMultiple(t *testing.T) {
 }
 
 func TestRenqueueEventsAfterOverflow(t *testing.T) {
-	dc.responses = make(chan Response, 1)
 	frt := &FakeRoundTripper{}
 	b := &batchAgg{
 		httpClient: &http.Client{Transport: frt},
 		testNower:  &fakeNower{},
+		responses:  make(chan Response, 1),
 	}
 
 	events := make([]*Event, 100)
@@ -540,12 +545,11 @@ func (t *testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // Verify that events over the batch size limit are requeued and sent
 func TestFireBatchLargeEventsSent(t *testing.T) {
-	dc.responses = make(chan Response, 1)
-
 	trt := &testRoundTripper{}
 	b := &batchAgg{
 		httpClient: &http.Client{Transport: trt},
 		testNower:  &fakeNower{},
+		responses:  make(chan Response, 1),
 	}
 
 	events := make([]*Event, 150)
@@ -572,13 +576,12 @@ func TestFireBatchLargeEventsSent(t *testing.T) {
 
 // Ensure we handle events greater than the limit by enqueuing a response
 func TestFireBatchWithTooLargeEvent(t *testing.T) {
-	dc.responses = make(chan Response, 1)
-
 	trt := &testRoundTripper{}
 	b := &batchAgg{
 		httpClient:  &http.Client{Transport: trt},
 		testNower:   &fakeNower{},
 		testBlocker: &sync.WaitGroup{},
+		responses:   make(chan Response, 1),
 	}
 
 	events := make([]*Event, 1)
@@ -599,7 +602,7 @@ func TestFireBatchWithTooLargeEvent(t *testing.T) {
 
 	b.Fire(&testNotifier{})
 	b.testBlocker.Wait()
-	resp := testGetResponse(t, dc.responses)
+	resp := testGetResponse(t, b.responses)
 	testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
 
 	testEquals(t, len(b.overflowBatches), 0)
