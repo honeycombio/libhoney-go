@@ -350,6 +350,7 @@ func Init(config Config) error {
 			pendingWorkCapacity:  config.PendingWorkCapacity,
 			blockOnSend:          config.BlockOnSend,
 			blockOnResponses:     config.BlockOnResponse,
+			userAgentAddition:    config.UserAgentAddition,
 			responses:            dc.responses,
 			transport:            config.Transport,
 			logger:               dc.logger,

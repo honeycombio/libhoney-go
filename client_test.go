@@ -66,5 +66,30 @@ func TestClientIsolated(t *testing.T) {
 	assert.Equal(t, 53, e2.data["Philip"], "client events should have client-scoped data")
 	assert.Equal(t, nil, e2.data["Ursula"], "client events should not have other client's content")
 	assert.Equal(t, nil, e2.data["Mary"], "client events should not have global content")
+}
 
+func TestNullClient(t *testing.T) {
+	var client Client
+	client = &NullClient{}
+	client.Add(nil)
+	client.AddDynamicField("name", func() interface{} { return nil })
+	client.AddField("name", "val")
+	client.Close()
+	client.Flush()
+	client.NewBuilder()
+	client.NewEvent()
+	client.Responses()
+}
+func TestMockClient(t *testing.T) {
+	client := &MockClient{}
+	inputStruct := struct{}{}
+	client.Add(inputStruct)
+	assert.Equal(t, inputStruct, client.AddFieldValue, "added object should show")
+	client.AddDynamicField("name", func() interface{} { return nil })
+	client.AddField("name", "val")
+	client.Close()
+	client.Flush()
+	client.NewBuilder()
+	client.NewEvent()
+	client.Responses()
 }

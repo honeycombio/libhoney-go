@@ -45,6 +45,7 @@ func NewClient(conf Config) (Client, error) {
 			pendingWorkCapacity:  conf.PendingWorkCapacity,
 			blockOnSend:          conf.BlockOnSend,
 			blockOnResponses:     conf.BlockOnResponse,
+			userAgentAddition:    conf.UserAgentAddition,
 			transport:            conf.Transport,
 			responses:            c.responses,
 			logger:               conf.Logger,
@@ -144,3 +145,70 @@ func (c *defaultClient) sendDroppedResponse(e *Event, message string) {
 		r.StatusCode, r.Err, string(r.Body))
 	writeToResponse(c.responses, r, c.conf.BlockOnResponse)
 }
+
+type MockClient struct {
+	// ThingAdded is what was most recently submitted using the client Add
+	AddValue             interface{}
+	AddFieldValue        map[string]interface{}
+	AddDynamicFieldValue map[string]func() interface{}
+	CloseCalled          bool
+	FlushCalled          bool
+	conf                 Config
+	tx                   Output
+	logger               Logger
+	responses            chan Response
+	defaultBuilder       *Builder
+	userAgentAddition    string
+}
+
+func NewMockClient() Client {
+	mc := &MockClient{
+		AddFieldValue:        make(map[string]interface{}),
+		AddDynamicFieldValue: make(map[string]func() interface{}),
+		tx:                   &MockOutput{},
+		logger:               &nullLogger{},
+		responses:            make(chan Response, 1),
+	}
+	mc.defaultBuilder = &Builder{
+		client: mc,
+	}
+	return mc
+}
+
+func (mc *MockClient) Add(data interface{}) error {
+	mc.AddValue = data
+	return nil
+}
+func (mc *MockClient) AddDynamicField(name string, fn func() interface{}) error {
+	mc.AddDynamicFieldValue[name] = fn
+	return nil
+}
+func (mc *MockClient) AddField(name string, val interface{}) {
+	mc.AddFieldValue[name] = val
+}
+func (mc *MockClient) Close() {
+	mc.CloseCalled = true
+}
+func (mc *MockClient) Flush() {
+	mc.FlushCalled = true
+}
+func (mc *MockClient) NewBuilder() *Builder {
+	return mc.defaultBuilder.Clone()
+}
+func (mc *MockClient) NewEvent() *Event {
+	return mc.defaultBuilder.NewEvent()
+}
+func (mc *MockClient) Responses() chan Response {
+	return mc.responses
+}
+
+type NullClient struct{}
+
+func (n *NullClient) Add(data interface{}) error                               { return nil }
+func (n *NullClient) AddDynamicField(name string, fn func() interface{}) error { return nil }
+func (n *NullClient) AddField(name string, val interface{})                    {}
+func (n *NullClient) Close()                                                   {}
+func (n *NullClient) Flush()                                                   {}
+func (n *NullClient) NewBuilder() *Builder                                     { return nil }
+func (n *NullClient) NewEvent() *Event                                         { return nil }
+func (n *NullClient) Responses() chan Response                                 { return nil }
