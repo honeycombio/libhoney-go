@@ -356,14 +356,14 @@ func Init(config Config) error {
 	if config.Output == nil {
 		logger.Printf("Using default transmission client")
 		// reset the global transmission
-		tx = &txDefaultClient{
-			maxBatchSize:         config.MaxBatchSize,
-			batchTimeout:         config.SendFrequency,
-			maxConcurrentBatches: config.MaxConcurrentBatches,
-			pendingWorkCapacity:  config.PendingWorkCapacity,
-			blockOnSend:          config.BlockOnSend,
-			blockOnResponses:     config.BlockOnResponse,
-			transport:            config.Transport,
+		tx = &TxDefaultClient{
+			MaxBatchSize:         config.MaxBatchSize,
+			BatchTimeout:         config.SendFrequency,
+			MaxConcurrentBatches: config.MaxConcurrentBatches,
+			PendingWorkCapacity:  config.PendingWorkCapacity,
+			BlockOnSend:          config.BlockOnSend,
+			BlockOnResponses:     config.BlockOnResponse,
+			Transport:            config.Transport,
 		}
 	} else {
 		tx = config.Output
@@ -638,11 +638,11 @@ func (e *Event) SendPresampled() (err error) {
 
 	txOnce.Do(func() {
 		if tx == nil {
-			tx = &txDefaultClient{
-				maxBatchSize:         DefaultMaxBatchSize,
-				batchTimeout:         DefaultBatchTimeout,
-				maxConcurrentBatches: DefaultMaxConcurrentBatches,
-				pendingWorkCapacity:  DefaultPendingWorkCapacity,
+			tx = &TxDefaultClient{
+				MaxBatchSize:         DefaultMaxBatchSize,
+				BatchTimeout:         DefaultBatchTimeout,
+				MaxConcurrentBatches: DefaultMaxConcurrentBatches,
+				PendingWorkCapacity:  DefaultPendingWorkCapacity,
 			}
 			tx.Start()
 		}

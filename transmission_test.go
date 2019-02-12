@@ -25,7 +25,7 @@ type errReader struct{}
 func (e errReader) Read(b []byte) (int, error) { return 0, errors.New("mystery read error!") }
 
 func TestTxAdd(t *testing.T) {
-	dc := &txDefaultClient{}
+	dc := &TxDefaultClient{}
 	dc.muster.Work = make(chan interface{}, 1)
 	responses = make(chan Response, 1)
 	responses <- placeholder
@@ -54,7 +54,7 @@ func TestTxAdd(t *testing.T) {
 		"placeholder was blocking responses channel but .Add should have continued")
 
 	// test blocking on send still gets it down the channel
-	dc.blockOnSend = true
+	dc.BlockOnSend = true
 	dc.muster.Work = make(chan interface{}, 1)
 	responses <- placeholder
 
@@ -65,8 +65,8 @@ func TestTxAdd(t *testing.T) {
 	testIsPlaceholderResponse(t, rsp, "blockOnSend doesn't affect the responses queue")
 
 	// test blocking on response still gets an overflow down the channel
-	dc.blockOnSend = false
-	dc.blockOnResponses = true
+	dc.BlockOnSend = false
+	dc.BlockOnResponses = true
 	dc.muster.Work = make(chan interface{}, 0)
 
 	responses <- placeholder
@@ -636,6 +636,22 @@ func TestWriterOutput(t *testing.T) {
 		strings.TrimSpace(buf.String()),
 		`{"data":{"key":"val"},"samplerate":2,"time":"0001-01-01T00:00:01Z","dataset":"dataset"}`,
 	)
+}
+
+func TestDisableGzipCompression(t *testing.T) {
+	b := &batchAgg{
+		disableGzipCompression: false,
+	}
+	reader, gzipped := b.buildReqReader([]byte("something something something"))
+	_, correctType := reader.(*bytes.Buffer)
+	testEquals(t, correctType, true, "wrong type returned")
+	testEquals(t, gzipped, true)
+	b.disableGzipCompression = true
+
+	reader, gzipped = b.buildReqReader([]byte("something something something"))
+	_, correctType = reader.(*bytes.Reader)
+	testEquals(t, correctType, true, "wrong type returned")
+	testEquals(t, gzipped, false)
 }
 
 func randomString(length int) string {

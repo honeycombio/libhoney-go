@@ -43,47 +43,50 @@ type Output interface {
 	Stop() error
 }
 
-type txDefaultClient struct {
-	maxBatchSize         uint          // how many events to collect into a batch before sending
-	batchTimeout         time.Duration // how often to send off batches
-	maxConcurrentBatches uint          // how many batches can be inflight simultaneously
-	pendingWorkCapacity  uint          // how many events to allow to pile up
-	blockOnSend          bool          // whether to block or drop events when the queue fills
-	blockOnResponses     bool          // whether to block or drop responses when the queue fills
+// TxDefaultClient batches queued events and sends them to the Honeycomb API over HTTP
+type TxDefaultClient struct {
+	MaxBatchSize           uint          // how many events to collect into a batch before sending
+	BatchTimeout           time.Duration // how often to send off batches
+	MaxConcurrentBatches   uint          // how many batches can be inflight simultaneously
+	PendingWorkCapacity    uint          // how many events to allow to pile up
+	BlockOnSend            bool          // whether to block or drop events when the queue fills
+	BlockOnResponses       bool          // whether to block or drop responses when the queue fills
+	DisableGzipCompression bool          // optionally toggle compression when sending. Useful when network bandwidth is less constrained than CPU
 
-	transport http.RoundTripper
+	Transport http.RoundTripper
 
 	muster muster.Client
 }
 
-func (t *txDefaultClient) Start() error {
+func (t *TxDefaultClient) Start() error {
 	logger.Printf("default transmission starting")
-	t.muster.MaxBatchSize = t.maxBatchSize
-	t.muster.BatchTimeout = t.batchTimeout
-	t.muster.MaxConcurrentBatches = t.maxConcurrentBatches
-	t.muster.PendingWorkCapacity = t.pendingWorkCapacity
+	t.muster.MaxBatchSize = t.MaxBatchSize
+	t.muster.BatchTimeout = t.BatchTimeout
+	t.muster.MaxConcurrentBatches = t.MaxConcurrentBatches
+	t.muster.PendingWorkCapacity = t.PendingWorkCapacity
 	t.muster.BatchMaker = func() muster.Batch {
 		return &batchAgg{
 			batches: map[string][]*Event{},
 			httpClient: &http.Client{
-				Transport: t.transport,
+				Transport: t.Transport,
 				Timeout:   10 * time.Second,
 			},
-			blockOnResponses: t.blockOnResponses,
+			blockOnResponses:       t.BlockOnResponses,
+			disableGzipCompression: t.DisableGzipCompression,
 		}
 	}
 	return t.muster.Start()
 }
 
-func (t *txDefaultClient) Stop() error {
+func (t *TxDefaultClient) Stop() error {
 	logger.Printf("default transmission stopping")
 	return t.muster.Stop()
 }
 
-func (t *txDefaultClient) Add(ev *Event) {
+func (t *TxDefaultClient) Add(ev *Event) {
 	logger.Printf("adding event to transmission; queue length %d", len(t.muster.Work))
 	sd.Gauge("queue_length", len(t.muster.Work))
-	if t.blockOnSend {
+	if t.BlockOnSend {
 		t.muster.Work <- ev
 		sd.Increment("messages_queued")
 	} else {
@@ -96,7 +99,7 @@ func (t *txDefaultClient) Add(ev *Event) {
 				Err:      errors.New("queue overflow"),
 				Metadata: ev.Metadata,
 			}
-			writeToResponse(r, t.blockOnResponses)
+			writeToResponse(r, t.BlockOnResponses)
 		}
 	}
 }
@@ -107,9 +110,10 @@ type batchAgg struct {
 	// map of batch key to a list of events destined for that batch
 	batches map[string][]*Event
 	// Used to reenque events when an initial batch is too large
-	overflowBatches  map[string][]*Event
-	httpClient       *http.Client
-	blockOnResponses bool
+	overflowBatches        map[string][]*Event
+	httpClient             *http.Client
+	blockOnResponses       bool
+	disableGzipCompression bool
 	// numEncoded       int
 
 	// allows manipulation of the value of "now" for testing
@@ -219,7 +223,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// build the HTTP request
-	reqBody, gzipped := buildReqReader(encEvs)
+	reqBody, gzipped := b.buildReqReader(encEvs)
 	url, err := url.Parse(apiHost)
 	if err != nil {
 		end := time.Now().UTC()
@@ -387,7 +391,11 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
 // the io.Reader is gzip-compressed.
-func buildReqReader(jsonEncoded []byte) (io.Reader, bool) {
+func (b *batchAgg) buildReqReader(jsonEncoded []byte) (io.Reader, bool) {
+	if b.disableGzipCompression {
+		return bytes.NewReader(jsonEncoded), false
+	}
+	// attempt to use gzip compression if enabled
 	buf := bytes.Buffer{}
 	g := gzip.NewWriter(&buf)
 	if _, err := g.Write(jsonEncoded); err == nil {
