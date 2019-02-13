@@ -1,4 +1,4 @@
-package libhoney
+package transmission
 
 import (
 	"encoding/json"

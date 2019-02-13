@@ -2,62 +2,100 @@ package libhoney
 
 import (
 	"errors"
+
+	"github.com/honeycombio/libhoney-go/transmission"
 )
 
-// TODO think about whether it would be useful for Client to be an interface instead
-
-type Client interface {
-	Add(data interface{}) error
-	AddDynamicField(name string, fn func() interface{}) error
-	AddField(name string, val interface{})
-	Close()
-	Flush()
-	NewBuilder() *Builder
-	NewEvent() *Event
-	Responses() chan Response
+// Client represents an object that can create new builders and events and send
+// them somewhere. It maintains its own sending queue for events, distinct from
+// both the package-level libhoney queue and any other client. Clients should be
+// created with NewClient(config). A manually created Client{} will function as
+// a nil output and drop everything handed to it (so can be safely used in dev
+// and tests). For more complete testing you can create a Client with a
+// MockOutput transmission then inspect the events it would have sent.
+type Client struct {
+	transmission transmission.Sender
+	logger       Logger
+	builder      *Builder
 }
 
-type defaultClient struct {
-	conf              Config
-	tx                Output
-	logger            Logger
-	responses         chan Response
-	defaultBuilder    *Builder
-	userAgentAddition string
+// ClientConfig is a subset of the global libhoney config that focuses on the
+// configuration of the client itself. The other config options are specific to
+// a given transmission Sender and should be specified there if the defaults
+// need to be overridden.
+type ClientConfig struct {
+	// APIKey is the Honeycomb authentication token. If it is specified during
+	// libhoney initialization, it will be used as the default API key for all
+	// events. If absent, API key must be explicitly set on a builder or
+	// event. Find your team's API keys at https://ui.honeycomb.io/account
+	APIKey string
+
+	// Dataset is the name of the Honeycomb dataset to which to send these events.
+	// If it is specified during libhoney initialization, it will be used as the
+	// default dataset for all events. If absent, dataset must be explicitly set
+	// on a builder or event.
+	Dataset string
+
+	// SampleRate is the rate at which to sample this event. Default is 1,
+	// meaning no sampling. If you want to send one event out of every 250 times
+	// Send() is called, you would specify 250 here.
+	SampleRate uint
+
+	// APIHost is the hostname for the Honeycomb API server to which to send this
+	// event. default: https://api.honeycomb.io/
+	APIHost string
+
+	// Transmission allows you to override what happens to events after you call
+	// Send() on them. By default, events are asynchronously sent to the
+	// Honeycomb API. You can use the MockOutput included in this package in
+	// unit tests, or use the WriterOutput to write events to STDOUT or to a
+	// file when developing locally.
+	Transmission transmission.Sender
+
+	// Logger defaults to nil and the SDK is silent. If you supply a logger here
+	// (or set it to &DefaultLogger{}), some debugging output will be emitted.
+	// Intended for human consumption during development to understand what the
+	// SDK is doing and diagnose trouble emitting events.
+	Logger Logger
 }
 
-func NewClient(conf Config) (Client, error) {
-	setConfigDefaults(&conf)
+// NewClient creates a Client with defaults correctly set
+func NewClient(conf ClientConfig) (*Client, error) {
+	if conf.SampleRate == 0 {
+		conf.SampleRate = defaultSampleRate
+	}
+	if conf.APIHost == "" {
+		conf.APIHost = defaultAPIHost
+	}
+	if conf.Dataset == "" {
+		conf.Dataset = defaultDataset
+	}
 
-	c := &defaultClient{
-		conf:   conf,
-		tx:     conf.Output,
+	c := &Client{
 		logger: conf.Logger,
 	}
+	c.ensureLogger()
 
-	c.responses = make(chan Response, conf.PendingWorkCapacity*2)
-	if c.tx == nil {
-		// use default Honeycomb output
-		c.tx = &txDefaultClient{
-			maxBatchSize:         conf.MaxBatchSize,
-			batchTimeout:         conf.SendFrequency,
-			maxConcurrentBatches: conf.MaxConcurrentBatches,
-			pendingWorkCapacity:  conf.PendingWorkCapacity,
-			blockOnSend:          conf.BlockOnSend,
-			blockOnResponses:     conf.BlockOnResponse,
-			userAgentAddition:    conf.UserAgentAddition,
-			transport:            conf.Transport,
-			responses:            c.responses,
-			logger:               conf.Logger,
+	if conf.Transmission == nil {
+		c.transmission = &transmission.Honeycomb{
+			MaxBatchSize:         DefaultMaxBatchSize,
+			BatchTimeout:         DefaultBatchTimeout,
+			MaxConcurrentBatches: DefaultMaxConcurrentBatches,
+			PendingWorkCapacity:  DefaultPendingWorkCapacity,
+			UserAgentAddition:    UserAgentAddition,
+			Logger:               c.logger,
+			Metrics:              sd,
 		}
+	} else {
+		c.transmission = conf.Transmission
 	}
-	if err := c.tx.Start(); err != nil {
+	if err := c.transmission.Start(); err != nil {
 		c.logger.Printf("transmission client failed to start: %s", err.Error())
 		return nil, err
 	}
 
-	c.defaultBuilder = &Builder{
-		WriteKey:   conf.WriteKey,
+	c.builder = &Builder{
+		WriteKey:   conf.APIKey,
 		Dataset:    conf.Dataset,
 		SampleRate: conf.SampleRate,
 		APIHost:    conf.APIHost,
@@ -71,14 +109,42 @@ func NewClient(conf Config) (Client, error) {
 	return c, nil
 }
 
+func (c *Client) ensureTransmission() {
+	if c.transmission == nil {
+		c.transmission = &transmission.DiscardOutput{}
+		c.transmission.Start()
+	}
+}
+
+func (c *Client) ensureLogger() {
+	if c.logger == nil {
+		c.logger = &nullLogger{}
+	}
+}
+
+func (c *Client) ensureBuilder() {
+	if c.builder == nil {
+		c.builder = &Builder{
+			dynFields: make([]dynamicField, 0, 0),
+			fieldHolder: fieldHolder{
+				data: make(map[string]interface{}),
+			},
+			client: c,
+		}
+	}
+}
+
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
-func (c *defaultClient) Close() {
-	c.logger.Printf("closing libhoney client")
-	if c.tx != nil {
-		c.tx.Stop()
+func (c *Client) Close() {
+	if c == nil {
+		c = &Client{}
 	}
-	close(c.responses)
+	c.ensureLogger()
+	c.logger.Printf("closing libhoney client")
+	if c.transmission != nil {
+		c.transmission.Stop()
+	}
 }
 
 // Flush closes and reopens the Output interface, ensuring events
@@ -88,127 +154,96 @@ func (c *defaultClient) Close() {
 // are not guaranteed to run (i.e. running in AWS Lambda)
 // Flush is not thread safe - use it only when you are sure that no other
 // parts of your program are calling Send
-func (c *defaultClient) Flush() {
+func (c *Client) Flush() {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureLogger()
 	c.logger.Printf("flushing libhoney client")
-	if c.tx != nil {
-		c.tx.Stop()
-		c.tx.Start()
+	if c.transmission != nil {
+		c.transmission.Stop()
+		c.transmission.Start()
 	}
 }
 
 // Responses returns the channel from which the caller can read the responses
 // to sent events.
-func (c *defaultClient) Responses() chan Response {
-	return c.responses
+func (c *Client) Responses() chan transmission.Response {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	return c.transmission.Responses()
 }
 
 // AddDynamicField takes a field name and a function that will generate values
 // for that metric. The function is called once every time a NewEvent() is
 // created and added as a field (with name as the key) to the newly created
 // event.
-func (c *defaultClient) AddDynamicField(name string, fn func() interface{}) error {
-	return c.defaultBuilder.AddDynamicField(name, fn)
+func (c *Client) AddDynamicField(name string, fn func() interface{}) error {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	c.ensureBuilder()
+	return c.builder.AddDynamicField(name, fn)
 }
 
-// AddField adds a Field to the global scope. This metric will be inherited by
+// AddField adds a Field to the Client's scope. This metric will be inherited by
 // all builders and events.
-func (c *defaultClient) AddField(name string, val interface{}) {
-	c.defaultBuilder.AddField(name, val)
+func (c *Client) AddField(name string, val interface{}) {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	c.ensureBuilder()
+	c.builder.AddField(name, val)
 }
 
-// Add adds its data to the global scope. It adds all fields in a struct or all
-// keys in a map as individual Fields. These metrics will be inherited by all
-// builders and events.
-func (c *defaultClient) Add(data interface{}) error {
-	return c.defaultBuilder.Add(data)
+// Add adds its data to the Client's scope. It adds all fields in a struct or
+// all keys in a map as individual Fields. These metrics will be inherited by
+// all builders and events.
+func (c *Client) Add(data interface{}) error {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	c.ensureBuilder()
+	return c.builder.Add(data)
 }
 
 // NewEvent creates a new event prepopulated with any Fields present in the
-// global scope.
-func (c *defaultClient) NewEvent() *Event {
-	return c.defaultBuilder.NewEvent()
+// Client's scope.
+func (c *Client) NewEvent() *Event {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	c.ensureBuilder()
+	return c.builder.NewEvent()
 }
 
-// NewBuilder creates a new event builder. The builder inherits any
-// Dynamic or Static Fields present in the global scope.
-func (c *defaultClient) NewBuilder() *Builder {
-	return c.defaultBuilder.Clone()
+// NewBuilder creates a new event builder. The builder inherits any Dynamic or
+// Static Fields present in the Client's scope.
+func (c *Client) NewBuilder() *Builder {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	c.ensureBuilder()
+	return c.builder.Clone()
 }
 
 // sendResponse sends a dropped event response down the response channel
-func (c *defaultClient) sendDroppedResponse(e *Event, message string) {
-	r := Response{
+func (c *Client) sendDroppedResponse(e *Event, message string) {
+	if c == nil {
+		c = &Client{}
+	}
+	c.ensureTransmission()
+	r := transmission.Response{
 		Err:      errors.New(message),
 		Metadata: e.Metadata,
 	}
-	c.logger.Printf("got response code %d, error %s, and body %s",
-		r.StatusCode, r.Err, string(r.Body))
-	writeToResponse(c.responses, r, c.conf.BlockOnResponse)
-}
+	c.transmission.SendResponse(r)
 
-type MockClient struct {
-	// ThingAdded is what was most recently submitted using the client Add
-	AddValue             interface{}
-	AddFieldValue        map[string]interface{}
-	AddDynamicFieldValue map[string]func() interface{}
-	CloseCalled          bool
-	FlushCalled          bool
-	conf                 Config
-	tx                   Output
-	logger               Logger
-	responses            chan Response
-	defaultBuilder       *Builder
-	userAgentAddition    string
 }
-
-func NewMockClient() Client {
-	mc := &MockClient{
-		AddFieldValue:        make(map[string]interface{}),
-		AddDynamicFieldValue: make(map[string]func() interface{}),
-		tx:                   &MockOutput{},
-		logger:               &nullLogger{},
-		responses:            make(chan Response, 1),
-	}
-	mc.defaultBuilder = &Builder{
-		client: mc,
-	}
-	return mc
-}
-
-func (mc *MockClient) Add(data interface{}) error {
-	mc.AddValue = data
-	return nil
-}
-func (mc *MockClient) AddDynamicField(name string, fn func() interface{}) error {
-	mc.AddDynamicFieldValue[name] = fn
-	return nil
-}
-func (mc *MockClient) AddField(name string, val interface{}) {
-	mc.AddFieldValue[name] = val
-}
-func (mc *MockClient) Close() {
-	mc.CloseCalled = true
-}
-func (mc *MockClient) Flush() {
-	mc.FlushCalled = true
-}
-func (mc *MockClient) NewBuilder() *Builder {
-	return mc.defaultBuilder.Clone()
-}
-func (mc *MockClient) NewEvent() *Event {
-	return mc.defaultBuilder.NewEvent()
-}
-func (mc *MockClient) Responses() chan Response {
-	return mc.responses
-}
-
-type NullClient struct{}
-
-func (n *NullClient) Add(data interface{}) error                               { return nil }
-func (n *NullClient) AddDynamicField(name string, fn func() interface{}) error { return nil }
-func (n *NullClient) AddField(name string, val interface{})                    {}
-func (n *NullClient) Close()                                                   {}
-func (n *NullClient) Flush()                                                   {}
-func (n *NullClient) NewBuilder() *Builder                                     { return nil }
-func (n *NullClient) NewEvent() *Event                                         { return nil }
-func (n *NullClient) Responses() chan Response                                 { return nil }

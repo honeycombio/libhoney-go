@@ -1,4 +1,4 @@
-package libhoney
+package transmission
 
 // txClient handles the transmission of events to Honeycomb.
 //
@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -35,79 +34,99 @@ const (
 	maxOverflowBatches int = 10
 )
 
-// Output is responsible for handling events after Send() is called.
-// Implementations of Add() must be safe for concurrent calls.
-type Output interface {
-	Add(ev *Event)
-	Start() error
-	Stop() error
-}
+// Version is the build version, set by libhoney
+var Version string
 
-type txDefaultClient struct {
-	maxBatchSize         uint          // how many events to collect into a batch before sending
-	batchTimeout         time.Duration // how often to send off batches
-	maxConcurrentBatches uint          // how many batches can be inflight simultaneously
-	pendingWorkCapacity  uint          // how many events to allow to pile up
-	blockOnSend          bool          // whether to block or drop events when the queue fills
-	blockOnResponses     bool          // whether to block or drop responses when the queue fills
-	userAgentAddition    string
+type Honeycomb struct {
+	MaxBatchSize         uint          // how many events to collect into a batch before sending
+	BatchTimeout         time.Duration // how often to send off batches
+	MaxConcurrentBatches uint          // how many batches can be inflight simultaneously
+	PendingWorkCapacity  uint          // how many events to allow to pile up
+	BlockOnSend          bool          // whether to block or drop events when the queue fills
+	BlockOnResponse      bool          // whether to block or drop responses when the queue fills
+	UserAgentAddition    string
 
 	responses chan Response
 
-	transport http.RoundTripper
+	Transport http.RoundTripper
 
 	muster muster.Client
 
-	logger Logger
+	Logger  Logger
+	Metrics Metrics
 }
 
-func (t *txDefaultClient) Start() error {
-	t.logger.Printf("default transmission starting")
-	t.muster.MaxBatchSize = t.maxBatchSize
-	t.muster.BatchTimeout = t.batchTimeout
-	t.muster.MaxConcurrentBatches = t.maxConcurrentBatches
-	t.muster.PendingWorkCapacity = t.pendingWorkCapacity
-	t.muster.BatchMaker = func() muster.Batch {
+func (h *Honeycomb) Start() error {
+	h.Logger.Printf("default transmission starting")
+	h.responses = make(chan Response, h.PendingWorkCapacity*2)
+	h.muster.MaxBatchSize = h.MaxBatchSize
+	h.muster.BatchTimeout = h.BatchTimeout
+	h.muster.MaxConcurrentBatches = h.MaxConcurrentBatches
+	h.muster.PendingWorkCapacity = h.PendingWorkCapacity
+	if h.Metrics == nil {
+		h.Metrics = &nullMetrics{}
+	}
+	h.muster.BatchMaker = func() muster.Batch {
 		return &batchAgg{
-			userAgentAddition: t.userAgentAddition,
+			userAgentAddition: h.UserAgentAddition,
 			batches:           map[string][]*Event{},
 			httpClient: &http.Client{
-				Transport: t.transport,
+				Transport: h.Transport,
 				Timeout:   10 * time.Second,
 			},
-			blockOnResponses: t.blockOnResponses,
-			responses:        t.responses,
+			blockOnResponses: h.BlockOnResponse,
+			responses:        h.responses,
+			metrics:          h.Metrics,
 		}
 	}
-	return t.muster.Start()
+	return h.muster.Start()
 }
 
-func (t *txDefaultClient) Stop() error {
-	t.logger.Printf("default transmission stopping")
-	return t.muster.Stop()
+func (h *Honeycomb) Stop() error {
+	h.Logger.Printf("Honeycomb transmission stopping")
+	err := h.muster.Stop()
+	close(h.responses)
+	return err
 }
 
-func (t *txDefaultClient) Add(ev *Event) {
-	t.logger.Printf("adding event to transmission; queue length %d", len(t.muster.Work))
-	sd.Gauge("queue_length", len(t.muster.Work))
-	if t.blockOnSend {
-		t.muster.Work <- ev
-		sd.Increment("messages_queued")
+func (h *Honeycomb) Add(ev *Event) {
+	h.Logger.Printf("adding event to transmission; queue length %d", len(h.muster.Work))
+	h.Metrics.Gauge("queue_length", len(h.muster.Work))
+	if h.BlockOnSend {
+		h.muster.Work <- ev
+		h.Metrics.Increment("messages_queued")
 	} else {
 		select {
-		case t.muster.Work <- ev:
-			sd.Increment("messages_queued")
+		case h.muster.Work <- ev:
+			h.Metrics.Increment("messages_queued")
 		default:
-			sd.Increment("queue_overflow")
+			h.Metrics.Increment("queue_overflow")
 			r := Response{
 				Err:      errors.New("queue overflow"),
 				Metadata: ev.Metadata,
 			}
-			t.logger.Printf("got response code %d, error %s, and body %s",
+			h.Logger.Printf("got response code %d, error %s, and body %s",
 				r.StatusCode, r.Err, string(r.Body))
-			writeToResponse(t.responses, r, t.blockOnResponses)
+			writeToResponse(h.responses, r, h.BlockOnResponse)
 		}
 	}
+}
+
+func (h *Honeycomb) Responses() chan Response {
+	return h.responses
+}
+
+func (h *Honeycomb) SendResponse(r Response) bool {
+	if h.BlockOnResponse {
+		h.responses <- r
+	} else {
+		select {
+		case h.responses <- r:
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // batchAgg is a batch aggregator - it's actually collecting what will
@@ -123,6 +142,8 @@ type batchAgg struct {
 
 	responses chan Response
 	// numEncoded       int
+
+	metrics Metrics
 
 	// allows manipulation of the value of "now" for testing
 	testNower   nower
@@ -141,7 +162,7 @@ func (b *batchAgg) Add(ev interface{}) {
 	e := ev.(*Event)
 	// collect separate buckets of events to send based on the trio of api/wk/ds
 	// if all three of those match it's safe to send all the events in one batch
-	key := fmt.Sprintf("%s_%s_%s", e.APIHost, e.WriteKey, e.Dataset)
+	key := fmt.Sprintf("%s_%s_%s", e.APIHost, e.APIKey, e.Dataset)
 	b.batches[key] = append(b.batches[key], e)
 }
 
@@ -158,7 +179,7 @@ func (b *batchAgg) reenqueueEvents(events []*Event) {
 		b.overflowBatches = make(map[string][]*Event)
 	}
 	for _, e := range events {
-		key := fmt.Sprintf("%s_%s_%s", e.APIHost, e.WriteKey, e.Dataset)
+		key := fmt.Sprintf("%s_%s_%s", e.APIHost, e.APIKey, e.Dataset)
 		b.overflowBatches[key] = append(b.overflowBatches[key], e)
 	}
 }
@@ -221,14 +242,11 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 	// get some attributes common to this entire batch up front
 	apiHost := events[0].APIHost
-	writeKey := events[0].WriteKey
+	writeKey := events[0].APIKey
 	dataset := events[0].Dataset
 
 	// sigh. dislike
-	userAgent := fmt.Sprintf("libhoney-go/%s", version)
-	if UserAgentAddition != "" {
-		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(UserAgentAddition))
-	}
+	userAgent := fmt.Sprintf("libhoney-go/%s", Version)
 	if b.userAgentAddition != "" {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
 	}
@@ -242,7 +260,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 			end = b.testNower.Now()
 		}
 		dur := end.Sub(start)
-		sd.Increment("send_errors")
+		b.metrics.Increment("send_errors")
 		for _, ev := range events {
 			// Pass the parsing error down responses channel for each event that
 			// didn't already error during encoding
@@ -274,7 +292,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 
 	// if the entire HTTP POST failed, send a failed response for every event
 	if err != nil {
-		sd.Increment("send_errors")
+		b.metrics.Increment("send_errors")
 		// Pass the top-level send error down responses channel for each event
 		// that didn't already error during encoding
 		b.enqueueErrResponses(err, events, dur/time.Duration(numEncoded))
@@ -283,12 +301,12 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// ok, the POST succeeded, let's process each individual response
-	sd.Increment("batches_sent")
-	sd.Count("messages_sent", numEncoded)
+	b.metrics.Increment("batches_sent")
+	b.metrics.Count("messages_sent", numEncoded)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		sd.Increment("send_errors")
+		b.metrics.Increment("send_errors")
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			b.enqueueErrResponses(fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
@@ -313,7 +331,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	err = json.NewDecoder(resp.Body).Decode(&batchResponses)
 	if err != nil {
 		// if we can't decode the responses, just error out all of them
-		sd.Increment("response_decode_errors")
+		b.metrics.Increment("response_decode_errors")
 		b.enqueueErrResponses(err, events, dur/time.Duration(numEncoded))
 		return
 	}
@@ -416,90 +434,4 @@ func buildReqReader(jsonEncoded []byte) (io.Reader, bool) {
 // nower to make testing easier
 type nower interface {
 	Now() time.Time
-}
-
-// WriterOutput implements the Output interface by marshalling events to JSON
-// and writing to STDOUT, or to the writer W if one is specified.
-type WriterOutput struct {
-	W io.Writer
-
-	sync.Mutex
-}
-
-func (w *WriterOutput) Start() error { return nil }
-func (w *WriterOutput) Stop() error  { return nil }
-
-func (w *WriterOutput) Add(ev *Event) {
-	var m []byte
-	func() {
-		ev.lock.RLock()
-		defer ev.lock.RUnlock()
-
-		tPointer := &(ev.Timestamp)
-		if ev.Timestamp.IsZero() {
-			tPointer = nil
-		}
-
-		// don't include sample rate if it's 1; this is the default
-		sampleRate := ev.SampleRate
-		if sampleRate == 1 {
-			sampleRate = 0
-		}
-
-		m, _ = json.Marshal(struct {
-			Data       marshallableMap `json:"data"`
-			SampleRate uint            `json:"samplerate,omitempty"`
-			Timestamp  *time.Time      `json:"time,omitempty"`
-			Dataset    string          `json:"dataset,omitempty"`
-		}{ev.data, sampleRate, tPointer, ev.Dataset})
-		m = append(m, '\n')
-	}()
-
-	w.Lock()
-	defer w.Unlock()
-	if w.W == nil {
-		w.W = os.Stdout
-	}
-	w.W.Write(m)
-}
-
-// DiscardOutput implements the Output interface and drops all events.
-type DiscardOutput struct {
-	*WriterOutput
-}
-
-func (d *DiscardOutput) Add(ev *Event) {}
-
-// MockOutput implements the Output interface by retaining a slice of added
-// events, for use in unit tests.
-type MockOutput struct {
-	started      int
-	stopped      int
-	eventsCalled int
-	events       []*Event
-	sync.Mutex
-}
-
-func (m *MockOutput) Add(ev *Event) {
-	m.Lock()
-	m.events = append(m.events, ev)
-	m.Unlock()
-}
-
-func (m *MockOutput) Start() error {
-	m.started += 1
-	return nil
-}
-func (m *MockOutput) Stop() error {
-	m.stopped += 1
-	return nil
-}
-
-func (m *MockOutput) Events() []*Event {
-	m.eventsCalled += 1
-	m.Lock()
-	defer m.Unlock()
-	output := make([]*Event, len(m.events))
-	copy(output, m.events)
-	return output
 }
