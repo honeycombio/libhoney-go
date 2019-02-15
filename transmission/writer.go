@@ -66,7 +66,7 @@ func (w *WriterOutput) Add(ev *Event) {
 	w.SendResponse(resp)
 }
 
-func (w *WriterOutput) Responses() chan Response {
+func (w *WriterOutput) TxResponses() chan Response {
 	return w.responses
 }
 

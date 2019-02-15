@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/honeycombio/libhoney-go/transmission"
 	"github.com/stretchr/testify/assert"
 
 	statsd "gopkg.in/alexcesaro/statsd.v2"
@@ -22,22 +23,14 @@ import (
 // tests interact with the same variables in a way that is not like how it
 // would be used. This function resets things to a blank state.
 func resetPackageVars() {
-	dc = &defaultClient{
-		tx:        &MockOutput{},
-		logger:    &nullLogger{},
-		responses: make(chan Response, 20),
-	}
-	dc.defaultBuilder = &Builder{
-		WriteKey:   "twerk",
-		Dataset:    "twdds",
-		SampleRate: 1,
-		APIHost:    "http://localhost:1234",
-		dynFields:  make([]dynamicField, 0, 0),
-		fieldHolder: fieldHolder{
-			data: make(map[string]interface{}),
-		},
-		client: dc,
-	}
+	tx := &transmission.MockOutput{}
+	dc, _ = NewClient(ClientConfig{
+		APIKey:       "twerk",
+		Dataset:      "twdds",
+		SampleRate:   1,
+		APIHost:      "http://localhost:1234",
+		Transmission: tx,
+	})
 	sd, _ = statsd.New(statsd.Mute(true))
 }
 
@@ -51,12 +44,12 @@ func TestLibhoney(t *testing.T) {
 	}
 	err := Init(conf)
 	testOK(t, err)
-	testEquals(t, cap(dc.responses), 2*DefaultPendingWorkCapacity)
+	testEquals(t, cap(dc.TxResponses()), 2*DefaultPendingWorkCapacity)
 }
 
 func TestCloseWithoutInit(t *testing.T) {
 	// before Init() is called, tx is an unpopulated nil interface
-	dc.tx = nil
+	dc.transmission = nil
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("recover should not have caught anything: got %v", r)
@@ -429,7 +422,7 @@ func TestBuilderDynFields(t *testing.T) {
 	AddDynamicField("ints", myIntFn)
 	b := NewBuilder()
 	b.AddDynamicField("strs", myStrFn)
-	testEquals(t, len(dc.defaultBuilder.dynFields), 1)
+	testEquals(t, len(dc.builder.dynFields), 1)
 	testEquals(t, len(b.dynFields), 2)
 
 	ev1 := NewEvent()
@@ -473,7 +466,7 @@ func TestBuilderStaticFields(t *testing.T) {
 	testEquals(t, ev3.data["intF"], 1)
 	testEquals(t, ev3.data["strF"], "aoeu")
 	testEquals(t, ev3.data["floatF"], 1.234)
-	// test that the old builder didn't get the metrics added to
+	// test that the old builder didn't get the metrics a5dded to
 	// the new builder
 	ev4 := b.NewEvent()
 	testEquals(t, ev4.data["intF"], 1)
@@ -481,13 +474,68 @@ func TestBuilderStaticFields(t *testing.T) {
 	testEquals(t, ev4.data["floatF"], nil)
 }
 
-func TestSendTime(t *testing.T) {
+// MockOutput implements the Output interface by retaining a slice of added
+// events, for use in unit tests. Deprecated, should use the transmission.Sender
+// interface instead.
+type MockOutput struct {
+	Started          int
+	Stopped          int
+	EventsCalled     int
+	events           []*Event
+	responses        chan Response
+	BlockOnResponses bool
+	sync.Mutex
+}
+
+func (m *MockOutput) Add(ev *Event) {
+	m.Lock()
+	m.events = append(m.events, ev)
+	m.Unlock()
+}
+
+func (m *MockOutput) Start() error {
+	m.Started += 1
+	m.responses = make(chan Response, 1)
+	return nil
+}
+func (m *MockOutput) Stop() error {
+	m.Stopped += 1
+	return nil
+}
+
+func (m *MockOutput) Events() []*Event {
+	m.EventsCalled += 1
+	m.Lock()
+	defer m.Unlock()
+	output := make([]*Event, len(m.events))
+	copy(output, m.events)
+	return output
+}
+
+func TestOutputInterface(t *testing.T) {
 	resetPackageVars()
 	testTx := &MockOutput{}
 	Init(Config{
 		WriteKey: "foo",
 		Dataset:  "bar",
 		Output:   testTx,
+	})
+
+	ev := NewEvent()
+	ev.AddField("mock", "mick")
+	err := ev.Send()
+	testOK(t, err)
+	testEquals(t, len(testTx.Events()), 1)
+	testEquals(t, testTx.Events()[0].Fields(), map[string]interface{}{"mock": "mick"})
+}
+
+func TestSendTime(t *testing.T) {
+	resetPackageVars()
+	testTx := &transmission.MockOutput{}
+	Init(Config{
+		WriteKey:     "foo",
+		Dataset:      "bar",
+		Transmission: testTx,
 	})
 
 	now := time.Now().Truncate(time.Millisecond)
@@ -514,14 +562,14 @@ func TestSendTime(t *testing.T) {
 		err := ev.Send()
 		testOK(t, err)
 		testEquals(t, len(testTx.Events()), i+1)
-		testEquals(t, testTx.Events()[i].Fields(), expected)
+		testEquals(t, testTx.Events()[i].Data, expected)
 	}
 }
 
 func TestSendPresampledErrors(t *testing.T) {
 	resetPackageVars()
-	testTx := &MockOutput{}
-	Init(Config{Output: testTx})
+	testTx := &transmission.MockOutput{}
+	Init(Config{Transmission: testTx})
 
 	tsts := []struct {
 		ev     *Event
@@ -584,10 +632,10 @@ func TestSendPresampledErrors(t *testing.T) {
 func TestPresampledSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &MockOutput{}
+	testTx := &transmission.MockOutput{}
 	testTx.Start()
 
-	dc.tx = testTx
+	dc.transmission = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -613,11 +661,11 @@ func TestPresampledSendSamplerate(t *testing.T) {
 func TestSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &MockOutput{}
+	testTx := &transmission.MockOutput{}
 	testTx.Start()
 	rand.Seed(1)
 
-	dc.tx = testTx
+	dc.transmission = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -657,8 +705,8 @@ func TestSendTestTransport(t *testing.T) {
 	})
 
 	err := SendNow(map[string]interface{}{"foo": 3})
-	dc.tx.Stop()  // flush unsent events
-	dc.tx.Start() // reopen tx.muster channel
+	dc.transmission.Stop()  // flush unsent events
+	dc.transmission.Start() // reopen tx.muster channel
 	testOK(t, err)
 	testEquals(t, tr.invoked, true)
 }
@@ -735,20 +783,6 @@ func TestChannelMembers(t *testing.T) {
 	testEquals(t, ev4.data["D"], 2)
 }
 
-func TestEventMarshal(t *testing.T) {
-	e := &Event{SampleRate: 1}
-	e.data = map[string]interface{}{"a": 1}
-	b, err := json.Marshal(e)
-	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1}}`)
-
-	e.Timestamp = time.Unix(1476309645, 0).UTC()
-	e.SampleRate = 5
-	b, err = json.Marshal(e)
-	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
-}
-
 func TestDataRace1(t *testing.T) {
 	e := &Event{SampleRate: 1}
 	e.data = map[string]interface{}{"a": 1}
@@ -800,13 +834,13 @@ func TestDataRace2(t *testing.T) {
 
 func TestDataRace3(t *testing.T) {
 	resetPackageVars()
-	testTx := &MockOutput{}
+	testTx := &transmission.MockOutput{}
 	Init(Config{
-		Output: testTx,
+		Transmission: testTx,
 	})
 	testTx.Start()
 
-	dc.tx = testTx
+	dc.transmission = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{

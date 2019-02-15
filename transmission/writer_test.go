@@ -66,7 +66,7 @@ func TestWriterOutputAdd(t *testing.T) {
 	assert.Equal(t, "{\"data\":{\"foo\":\"bar\"}}\n", string(mocked.written), "emty event should still make JSON")
 
 	select {
-	case res := <-w.Responses():
+	case res := <-w.TxResponses():
 		assert.Equal(t, ev.Metadata, res.Metadata, "Response off the queue should have the right metadata")
 	case <-time.After(1 * time.Second):
 		t.Error("timed out waiting on channel")
@@ -89,7 +89,7 @@ func TestWriterOutputAddingResponsesNonblocking(t *testing.T) {
 	// one ev should get one response
 	w.Add(ev)
 	select {
-	case res := <-w.Responses():
+	case res := <-w.TxResponses():
 		assert.Equal(t, ev.Metadata, res.Metadata, "Response off the queue should have the right metadata")
 	case <-time.After(1 * time.Second):
 		t.Error("timed out waiting on channel")
@@ -102,14 +102,14 @@ func TestWriterOutputAddingResponsesNonblocking(t *testing.T) {
 	w.Add(ev)
 
 	select {
-	case res := <-w.Responses():
+	case res := <-w.TxResponses():
 		assert.Equal(t, ev.Metadata, res.Metadata, "Response off the queue should have the right metadata")
 	case <-time.After(1 * time.Second):
 		t.Error("timed out waiting on channel")
 	}
 
 	select {
-	case res := <-w.Responses():
+	case res := <-w.TxResponses():
 		t.Errorf("shouldn't have gotten a second response, but got %+v", res)
 	default:
 		// good, we shouldn't have had a second one.
@@ -170,7 +170,7 @@ func TestWriterOutputAddingResponsesBlocking(t *testing.T) {
 
 	// unblock the response queue by reading the event off it
 	select {
-	case <-w.Responses():
+	case <-w.TxResponses():
 		// good, this is expected
 	case <-time.After(1 * time.Second):
 		// ehh... there was supposed to be something there.

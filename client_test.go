@@ -7,14 +7,15 @@ import (
 )
 
 func TestClientAdding(t *testing.T) {
+	t.Parallel()
 	b := &Builder{
 		dynFields: make([]dynamicField, 0, 0),
 		fieldHolder: fieldHolder{
 			data: make(map[string]interface{}),
 		},
 	}
-	c := &defaultClient{
-		defaultBuilder: b,
+	c := &Client{
+		builder: b,
 	}
 
 	c.AddDynamicField("dynamo", func() interface{} { return nil })
@@ -34,19 +35,20 @@ func TestClientAdding(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	conf := Config{
-		WriteKey: "Oliver",
+	t.Parallel()
+	conf := ClientConfig{
+		APIKey: "Oliver",
 	}
 	c, err := NewClient(conf)
 
 	assert.NoError(t, err, "new client should not error")
-	assert.Equal(t, "Oliver", c.(*defaultClient).conf.WriteKey, "initialized client should respect config")
-	assert.Equal(t, "Oliver", c.(*defaultClient).defaultBuilder.WriteKey, "initialized client should respect config")
+	assert.Equal(t, "Oliver", c.builder.WriteKey, "initialized client should respect config")
 }
 
 func TestClientIsolated(t *testing.T) {
-	c1, _ := NewClient(Config{})
-	c2, _ := NewClient(Config{})
+	t.Parallel()
+	c1, _ := NewClient(ClientConfig{})
+	c2, _ := NewClient(ClientConfig{})
 
 	AddField("Mary", 83)
 	c1.AddField("Ursula", 88)
@@ -68,28 +70,29 @@ func TestClientIsolated(t *testing.T) {
 	assert.Equal(t, nil, e2.data["Mary"], "client events should not have global content")
 }
 
-func TestNullClient(t *testing.T) {
-	var client Client
-	client = &NullClient{}
-	client.Add(nil)
-	client.AddDynamicField("name", func() interface{} { return nil })
-	client.AddField("name", "val")
-	client.Close()
-	client.Flush()
-	client.NewBuilder()
-	client.NewEvent()
-	client.Responses()
+func TestEnsureLoggerRaces(t *testing.T) {
+	t.Parallel()
+	c := Client{}
+
+	// Close() ensures the Logger exists.
+	go func() { c.Close() }()
+	go func() { c.Close() }()
 }
-func TestMockClient(t *testing.T) {
-	client := &MockClient{}
-	inputStruct := struct{}{}
-	client.Add(inputStruct)
-	assert.Equal(t, inputStruct, client.AddFieldValue, "added object should show")
-	client.AddDynamicField("name", func() interface{} { return nil })
-	client.AddField("name", "val")
-	client.Close()
-	client.Flush()
-	client.NewBuilder()
-	client.NewEvent()
-	client.Responses()
+
+func TestEnsureTransmissionRaces(t *testing.T) {
+	t.Parallel()
+	c := Client{}
+
+	// TxResponses() ensures the Transmission exists.
+	go func() { c.TxResponses() }()
+	go func() { c.TxResponses() }()
+}
+
+func TestEnsureBuilderRaces(t *testing.T) {
+	t.Parallel()
+	c := Client{}
+
+	// AddField() ensures the Builder exists.
+	go func() { c.AddField("ready, set", "GO") }()
+	go func() { c.AddField("ready, set", "GO") }()
 }

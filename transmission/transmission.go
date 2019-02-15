@@ -112,7 +112,7 @@ func (h *Honeycomb) Add(ev *Event) {
 	}
 }
 
-func (h *Honeycomb) Responses() chan Response {
+func (h *Honeycomb) TxResponses() chan Response {
 	return h.responses
 }
 

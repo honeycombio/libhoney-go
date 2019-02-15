@@ -16,7 +16,7 @@ type Sender interface {
 
 	// Responses returns a channel that will contain a single Response for each
 	// Event added. Note that they may not be in the same order as they came in
-	Responses() chan Response
+	TxResponses() chan Response
 
 	// SendResponse adds a Response to the Responses queue. It should be added
 	// for events handed to libhoney that are dropped before they even make it

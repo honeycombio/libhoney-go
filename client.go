@@ -2,6 +2,7 @@ package libhoney
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/honeycombio/libhoney-go/transmission"
 )
@@ -17,6 +18,10 @@ type Client struct {
 	transmission transmission.Sender
 	logger       Logger
 	builder      *Builder
+
+	oneTx      sync.Once
+	oneLogger  sync.Once
+	oneBuilder sync.Once
 }
 
 // ClientConfig is a subset of the global libhoney config that focuses on the
@@ -110,28 +115,34 @@ func NewClient(conf ClientConfig) (*Client, error) {
 }
 
 func (c *Client) ensureTransmission() {
-	if c.transmission == nil {
-		c.transmission = &transmission.DiscardOutput{}
-		c.transmission.Start()
-	}
+	c.oneTx.Do(func() {
+		if c.transmission == nil {
+			c.transmission = &transmission.DiscardOutput{}
+			c.transmission.Start()
+		}
+	})
 }
 
 func (c *Client) ensureLogger() {
-	if c.logger == nil {
-		c.logger = &nullLogger{}
-	}
+	c.oneLogger.Do(func() {
+		if c.logger == nil {
+			c.logger = &nullLogger{}
+		}
+	})
 }
 
 func (c *Client) ensureBuilder() {
-	if c.builder == nil {
-		c.builder = &Builder{
-			dynFields: make([]dynamicField, 0, 0),
-			fieldHolder: fieldHolder{
-				data: make(map[string]interface{}),
-			},
-			client: c,
+	c.oneBuilder.Do(func() {
+		if c.builder == nil {
+			c.builder = &Builder{
+				dynFields: make([]dynamicField, 0, 0),
+				fieldHolder: fieldHolder{
+					data: make(map[string]interface{}),
+				},
+				client: c,
+			}
 		}
-	}
+	})
 }
 
 // Close waits for all in-flight messages to be sent. You should
@@ -166,14 +177,14 @@ func (c *Client) Flush() {
 	}
 }
 
-// Responses returns the channel from which the caller can read the responses
+// TxResponses returns the channel from which the caller can read the responses
 // to sent events.
-func (c *Client) Responses() chan transmission.Response {
+func (c *Client) TxResponses() chan transmission.Response {
 	if c == nil {
 		c = &Client{}
 	}
 	c.ensureTransmission()
-	return c.transmission.Responses()
+	return c.transmission.TxResponses()
 }
 
 // AddDynamicField takes a field name and a function that will generate values

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/honeycombio/libhoney-go"
+	libhoney "github.com/honeycombio/libhoney-go"
 )
 
 // This example reads JSON blobs from a file and sends them as Honeycomb events.
@@ -21,9 +21,9 @@ import (
 // event.
 
 const (
-	version           = "0.0.1-example"
-	honeyFakeWritekey = "abcabc123123defdef456456"
-	honeyDataset      = "example json blobs"
+	version         = "0.0.1-example"
+	honeyFakeAPIKey = "abcabc123123defdef456456"
+	honeyDataset    = "example json blobs"
 )
 
 var jsonFilePaths = []string{"./example1.json", "./example2.json"}
@@ -32,7 +32,8 @@ func main() {
 
 	// basic initialization
 	libhConf := libhoney.Config{
-		WriteKey: honeyFakeWritekey,
+		// TODO change to use APIKey
+		WriteKey: honeyFakeAPIKey,
 		Dataset:  honeyDataset,
 		Logger:   &libhoney.DefaultLogger{},
 	}

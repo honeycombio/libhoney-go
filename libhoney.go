@@ -53,6 +53,9 @@ var (
 var (
 	// singleton-like client used if you use package-level functions
 	dc = &Client{}
+	// responses is the interim channel to avoid breaking the API while
+	// switching types to transmission.Response
+	transitionResponses chan Response
 )
 
 // default is a mute statsd; intended to be overridden
@@ -245,7 +248,7 @@ func (to *transitionOutput) Add(ev *transmission.Event) {
 	to.Output.Add(origEvent)
 }
 
-func (to *transitionOutput) Responses() chan transmission.Response {
+func (to *transitionOutput) TxResponses() chan transmission.Response {
 	return to.responses
 }
 func (to *transitionOutput) SendResponse(r transmission.Response) bool {
@@ -313,6 +316,11 @@ Response body: %s`, resp.StatusCode, string(body))
 	}
 
 	return ret["team_slug"], nil
+}
+
+// Response is deprecated; please use transmission.Response instead.
+type Response struct {
+	transmission.Response
 }
 
 // Event is used to hold data that can be sent to Honeycomb. It can also
@@ -475,9 +483,27 @@ func SendNow(data interface{}) error {
 }
 
 // Responses returns the channel from which the caller can read the responses
+// to sent events. Responses is deprecated; please use TxResponses instead.
+func Responses() chan Response {
+	// TODO protect with a sync.Once
+	if transitionResponses == nil {
+		transitionResponses = make(chan Response, cap(dc.TxResponses()))
+		go func() {
+			for {
+				txResp := <-dc.TxResponses()
+				resp := Response{}
+				resp.Response = txResp
+				transitionResponses <- resp
+			}
+		}()
+	}
+	return transitionResponses
+}
+
+// TxResponses returns the channel from which the caller can read the responses
 // to sent events.
-func Responses() chan transmission.Response {
-	return dc.Responses()
+func TxResponses() chan transmission.Response {
+	return dc.TxResponses()
 }
 
 // AddDynamicField takes a field name and a function that will generate values

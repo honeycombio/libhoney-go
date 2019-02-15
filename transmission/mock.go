@@ -41,7 +41,7 @@ func (m *MockOutput) Events() []*Event {
 	return output
 }
 
-func (m *MockOutput) Responses() chan Response {
+func (m *MockOutput) TxResponses() chan Response {
 	return m.responses
 }
 
