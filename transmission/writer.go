@@ -21,6 +21,9 @@ type WriterOutput struct {
 }
 
 func (w *WriterOutput) Start() error {
+	if w.ResponseQueueSize == 0 {
+		w.ResponseQueueSize = 100
+	}
 	w.responses = make(chan Response, w.ResponseQueueSize)
 	return nil
 }
@@ -56,7 +59,11 @@ func (w *WriterOutput) Add(ev *Event) {
 		w.W = os.Stdout
 	}
 	w.W.Write(m)
-	// TODO add response to the response queue
+	resp := Response{
+		// TODO what makes sense to set in the response here?
+		Metadata: ev.Metadata,
+	}
+	w.SendResponse(resp)
 }
 
 func (w *WriterOutput) Responses() chan Response {

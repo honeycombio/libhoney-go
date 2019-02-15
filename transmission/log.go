@@ -5,3 +5,9 @@ type Logger interface {
 	Printf(msg string, args ...interface{})
 }
 
+type nullLogger struct{}
+
+// Printf swallows messages
+func (n *nullLogger) Printf(msg string, args ...interface{}) {
+	// nothing to see here.
+}

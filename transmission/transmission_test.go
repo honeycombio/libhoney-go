@@ -24,57 +24,60 @@ type errReader struct{}
 
 func (e errReader) Read(b []byte) (int, error) { return 0, errors.New("mystery read error!") }
 
-func TestTxAdd(t *testing.T) {
-	txDC := &txDefaultClient{logger: &nullLogger{}}
-	txDC.muster.Work = make(chan interface{}, 1)
-	dc.responses = make(chan Response, 1)
-	dc.responses <- placeholder
-	txDC.responses = dc.responses
+func TestHnyTxAdd(t *testing.T) {
+	hnyTx := &Honeycomb{
+		Logger:  &nullLogger{},
+		Metrics: &nullMetrics{},
+	}
+	hnyTx.muster.Work = make(chan interface{}, 1)
+	hnyTx.responses = make(chan Response, 1)
+	hnyTx.responses <- placeholder
+	hnyTx.responses = hnyTx.responses
 
 	// default successful case
-	e := &Event{Metadata: "mmeetta", client: dc}
-	txDC.Add(e)
-	added := <-txDC.muster.Work
+	e := &Event{Metadata: "mmeetta"}
+	hnyTx.Add(e)
+	added := <-hnyTx.muster.Work
 	testEquals(t, e, added)
-	rsp := testGetResponse(t, dc.responses)
+	rsp := testGetResponse(t, hnyTx.responses)
 	testIsPlaceholderResponse(t, rsp, "work was simply queued; no response available yet")
 
 	// make the queue 0 length to force an overflow
-	txDC.muster.Work = make(chan interface{}, 0)
-	txDC.Add(e)
-	rsp = testGetResponse(t, dc.responses)
+	hnyTx.muster.Work = make(chan interface{}, 0)
+	hnyTx.Add(e)
+	rsp = testGetResponse(t, hnyTx.responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.Err.Error(), "queue overflow",
 		"overflow error should have been put on responses channel immediately")
 	// make sure that (default) nonblocking on responses allows execution even if
 	// responses channel is full
-	dc.responses <- placeholder
-	txDC.Add(e)
-	rsp = testGetResponse(t, dc.responses)
+	hnyTx.responses <- placeholder
+	hnyTx.Add(e)
+	rsp = testGetResponse(t, hnyTx.responses)
 	testIsPlaceholderResponse(t, rsp,
 		"placeholder was blocking responses channel but .Add should have continued")
 
 	// test blocking on send still gets it down the channel
-	txDC.blockOnSend = true
-	txDC.muster.Work = make(chan interface{}, 1)
-	dc.responses <- placeholder
+	hnyTx.BlockOnSend = true
+	hnyTx.muster.Work = make(chan interface{}, 1)
+	hnyTx.responses <- placeholder
 
-	txDC.Add(e)
-	added = <-txDC.muster.Work
+	hnyTx.Add(e)
+	added = <-hnyTx.muster.Work
 	testEquals(t, e, added)
-	rsp = testGetResponse(t, dc.responses)
-	testIsPlaceholderResponse(t, rsp, "blockOnSend doesn't affect the responses queue")
+	rsp = testGetResponse(t, hnyTx.responses)
+	testIsPlaceholderResponse(t, rsp, "BlockOnSend doesn't affect the responses queue")
 
 	// test blocking on response still gets an overflow down the channel
-	txDC.blockOnSend = false
-	txDC.blockOnResponses = true
-	txDC.muster.Work = make(chan interface{}, 0)
+	hnyTx.BlockOnSend = false
+	hnyTx.BlockOnResponse = true
+	hnyTx.muster.Work = make(chan interface{}, 0)
 
-	dc.responses <- placeholder
-	go txDC.Add(e)
-	rsp = testGetResponse(t, dc.responses)
+	hnyTx.responses <- placeholder
+	go hnyTx.Add(e)
+	rsp = testGetResponse(t, hnyTx.responses)
 	testIsPlaceholderResponse(t, rsp, "should pull placeholder response off channel first")
-	rsp = testGetResponse(t, dc.responses)
+	rsp = testGetResponse(t, hnyTx.responses)
 	testErr(t, rsp.Err)
 	testEquals(t, rsp.Err.Error(), "queue overflow",
 		"overflow error should have been pushed into channel")
@@ -106,7 +109,9 @@ func TestTxSendSingle(t *testing.T) {
 		testNower:   &fakeNower{},
 		testBlocker: &sync.WaitGroup{},
 		responses:   make(chan Response, 1),
+		metrics:     &nullMetrics{},
 	}
+	Version = "1.2.3"
 	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
 		if body == "" {
 			frt.resp = nil
@@ -122,21 +127,21 @@ func TestTxSendSingle(t *testing.T) {
 
 	fhData := map[string]interface{}{"foo": "bar"}
 	e := &Event{
-		fieldHolder: fieldHolder{data: fhData},
-		SampleRate:  4,
-		APIHost:     "http://fakeHost:8080",
-		WriteKey:    "written",
-		Dataset:     "ds1",
-		Metadata:    "emmetta",
+		Data:       fhData,
+		SampleRate: 4,
+		APIHost:    "http://fakeHost:8080",
+		APIKey:     "written",
+		Dataset:    "ds1",
+		Metadata:   "emmetta",
 	}
 	reset(b, frt, 200, `[{"status":202}]`, nil)
 	b.Add(e)
 	b.Fire(&testNotifier{})
 	expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
 	testEquals(t, frt.req.URL.String(), expectedURL)
-	versionedUserAgent := fmt.Sprintf("libhoney-go/%s", version)
+	versionedUserAgent := fmt.Sprintf("libhoney-go/%s", Version)
 	testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
-	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.WriteKey)
+	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.APIKey)
 	buf := &bytes.Buffer{}
 	g := gzip.NewWriter(buf)
 	_, err := g.Write([]byte(`[{"data":{"foo":"bar"},"samplerate":4}]`))
@@ -151,7 +156,7 @@ func TestTxSendSingle(t *testing.T) {
 	testOK(t, rsp.Err)
 
 	// test UserAgentAddition
-	UserAgentAddition = "  fancyApp/3 "
+	b.userAgentAddition = "  fancyApp/3 "
 	expectedUserAgentAddition := "fancyApp/3"
 	longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
 	reset(b, frt, 200, `[{"status":202}]`, nil)
@@ -161,7 +166,7 @@ func TestTxSendSingle(t *testing.T) {
 	rsp = testGetResponse(t, b.responses)
 	testEquals(t, rsp.StatusCode, 202)
 	testOK(t, rsp.Err)
-	UserAgentAddition = ""
+	b.userAgentAddition = ""
 
 	// test unsuccessful send
 	reset(b, frt, 0, "", errors.New("testing error handling"))
@@ -184,7 +189,7 @@ func TestTxSendSingle(t *testing.T) {
 		"should pull placeholder response and only placeholder response off channel")
 
 	// test blocking response path, error
-	b.blockOnResponses = true
+	b.blockOnResponse = true
 	reset(b, frt, 0, "", errors.New("err"))
 	b.responses <- placeholder
 	b.Add(e)
@@ -198,7 +203,7 @@ func TestTxSendSingle(t *testing.T) {
 	testEquals(t, len(rsp.Body), 0)
 
 	// test blocking response path, request completed but got HTTP error code
-	b.blockOnResponses = true
+	b.blockOnResponse = true
 	reset(b, frt, 400, `{"error":"unknown Team key - check your credentials"}`, nil)
 	b.responses <- placeholder
 	b.Add(e)
@@ -213,7 +218,7 @@ func TestTxSendSingle(t *testing.T) {
 	// test the case that our POST request completed, we got an HTTP error
 	// code, but then got an error reading HTTP response body. An unlikely
 	// scenario but technically possible.
-	b.blockOnResponses = true
+	b.blockOnResponse = true
 	frt.resp = &http.Response{
 		StatusCode: 500,
 		Body:       ioutil.NopCloser(errReader{}),
@@ -289,15 +294,16 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 		b := &batchAgg{
 			httpClient: &http.Client{Transport: frt},
 			responses:  make(chan Response, len(tt.expected)),
+			metrics:    &nullMetrics{},
 		}
 		frt.resp.Body = ioutil.NopCloser(strings.NewReader(tt.response))
 		for i, data := range tt.in {
 			b.Add(&Event{
-				fieldHolder: fieldHolder{data: data},
-				APIHost:     "fakeHost",
-				WriteKey:    "written",
-				Dataset:     "ds1",
-				Metadata:    fmt.Sprint("emmetta", i), // tracking insertion order
+				Data:     data,
+				APIHost:  "fakeHost",
+				APIKey:   "written",
+				Dataset:  "ds1",
+				Metadata: fmt.Sprint("emmetta", i), // tracking insertion order
 			})
 		}
 		b.Fire(&testNotifier{})
@@ -436,6 +442,7 @@ func TestTxSendBatchMultiple(t *testing.T) {
 		b := &batchAgg{
 			httpClient: &http.Client{Transport: ffrt},
 			responses:  make(chan Response, len(tt.expected)),
+			metrics:    &nullMetrics{},
 		}
 		ffrt.reqBodies = tt.expReqBodies
 		ffrt.respBodies = tt.respBodies
@@ -450,11 +457,11 @@ func TestTxSendBatchMultiple(t *testing.T) {
 			headers := strings.Split(k, ",")
 			for _, data := range tt.in[k] {
 				b.Add(&Event{
-					fieldHolder: fieldHolder{data: data},
-					APIHost:     headers[0],
-					WriteKey:    headers[1],
-					Dataset:     headers[2],
-					Metadata:    fmt.Sprint("emmetta", i), // tracking insertion order
+					Data:     data,
+					APIHost:  headers[0],
+					APIKey:   headers[1],
+					Dataset:  headers[2],
+					Metadata: fmt.Sprint("emmetta", i), // tracking insertion order
 				})
 				i++
 			}
@@ -490,6 +497,7 @@ func TestRenqueueEventsAfterOverflow(t *testing.T) {
 		httpClient: &http.Client{Transport: frt},
 		testNower:  &fakeNower{},
 		responses:  make(chan Response, 1),
+		metrics:    &nullMetrics{},
 	}
 
 	events := make([]*Event, 100)
@@ -498,12 +506,12 @@ func TestRenqueueEventsAfterOverflow(t *testing.T) {
 	fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
 	for i := range events {
 		events[i] = &Event{
-			fieldHolder: fieldHolder{data: fhData},
-			SampleRate:  4,
-			APIHost:     "http://fakeHost:8080",
-			WriteKey:    "written",
-			Dataset:     "ds1",
-			Metadata:    "emmetta",
+			Data:       fhData,
+			SampleRate: 4,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   "emmetta",
 		}
 	}
 
@@ -550,18 +558,19 @@ func TestFireBatchLargeEventsSent(t *testing.T) {
 		httpClient: &http.Client{Transport: trt},
 		testNower:  &fakeNower{},
 		responses:  make(chan Response, 1),
+		metrics:    &nullMetrics{},
 	}
 
 	events := make([]*Event, 150)
 	fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
 	for i := range events {
 		events[i] = &Event{
-			fieldHolder: fieldHolder{data: fhData},
-			SampleRate:  4,
-			APIHost:     "http://fakeHost:8080",
-			WriteKey:    "written",
-			Dataset:     "ds1",
-			Metadata:    "emmetta",
+			Data:       fhData,
+			SampleRate: 4,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   "emmetta",
 		}
 		b.Add(events[i])
 	}
@@ -582,18 +591,19 @@ func TestFireBatchWithTooLargeEvent(t *testing.T) {
 		testNower:   &fakeNower{},
 		testBlocker: &sync.WaitGroup{},
 		responses:   make(chan Response, 1),
+		metrics:     &nullMetrics{},
 	}
 
 	events := make([]*Event, 1)
 	for i := range events {
 		fhData := map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)}
 		events[i] = &Event{
-			fieldHolder: fieldHolder{data: fhData},
-			SampleRate:  4,
-			APIHost:     "http://fakeHost:8080",
-			WriteKey:    "written",
-			Dataset:     "ds1",
-			Metadata:    fmt.Sprintf("meta %d", i),
+			Data:       fhData,
+			SampleRate: 4,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   fmt.Sprintf("meta %d", i),
 		}
 		b.Add(events[i])
 	}
@@ -609,36 +619,6 @@ func TestFireBatchWithTooLargeEvent(t *testing.T) {
 	testEquals(t, len(b.overflowBatches[key]), 0)
 	testEquals(t, trt.callCount, 0)
 
-}
-
-func TestWriterOutput(t *testing.T) {
-	buf := bytes.NewBuffer(nil)
-	writer := WriterOutput{
-		W: buf,
-	}
-	ev := Event{
-		Timestamp:  time.Time{},
-		SampleRate: 1,
-		fieldHolder: fieldHolder{
-			data: marshallableMap{},
-		},
-	}
-
-	writer.Add(&ev)
-	testEquals(t, strings.TrimSpace(buf.String()), `{"data":{}}`)
-
-	ev.Timestamp = ev.Timestamp.Add(time.Second)
-	ev.SampleRate = 2
-	ev.Dataset = "dataset"
-	ev.AddField("key", "val")
-
-	buf.Reset()
-	writer.Add(&ev)
-	testEquals(
-		t,
-		strings.TrimSpace(buf.String()),
-		`{"data":{"key":"val"},"samplerate":2,"time":"0001-01-01T00:00:01Z","dataset":"dataset"}`,
-	)
 }
 
 func randomString(length int) string {

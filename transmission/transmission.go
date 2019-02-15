@@ -74,9 +74,9 @@ func (h *Honeycomb) Start() error {
 				Transport: h.Transport,
 				Timeout:   10 * time.Second,
 			},
-			blockOnResponses: h.BlockOnResponse,
-			responses:        h.responses,
-			metrics:          h.Metrics,
+			blockOnResponse: h.BlockOnResponse,
+			responses:       h.responses,
+			metrics:         h.Metrics,
 		}
 	}
 	return h.muster.Start()
@@ -137,7 +137,7 @@ type batchAgg struct {
 	// Used to reenque events when an initial batch is too large
 	overflowBatches   map[string][]*Event
 	httpClient        *http.Client
-	blockOnResponses  bool
+	blockOnResponse   bool
 	userAgentAddition string
 
 	responses chan Response
@@ -167,7 +167,7 @@ func (b *batchAgg) Add(ev interface{}) {
 }
 
 func (b *batchAgg) enqueueResponse(resp Response) {
-	if writeToResponse(b.responses, resp, b.blockOnResponses) {
+	if writeToResponse(b.responses, resp, b.blockOnResponse) {
 		if b.testBlocker != nil {
 			b.testBlocker.Done()
 		}
@@ -344,6 +344,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	for _, resp := range batchResponses {
 		resp.Duration = dur / time.Duration(numEncoded)
 		for events[eIdx] == nil {
+			fmt.Printf("incr, eIdx: %d, len(evs): %d\n", eIdx, len(events))
 			eIdx++
 		}
 		if eIdx == len(events) { // just in case

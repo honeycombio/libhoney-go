@@ -1,7 +1,10 @@
 package transmission
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
+	"sort"
 	"time"
 )
 
@@ -42,8 +45,63 @@ func (e *Event) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(struct {
-		Data       map[string]interface{} `json:"data"`
-		SampleRate uint                   `json:"samplerate,omitempty"`
-		Timestamp  *time.Time             `json:"time,omitempty"`
+		Data       marshallableMap `json:"data"`
+		SampleRate uint            `json:"samplerate,omitempty"`
+		Timestamp  *time.Time      `json:"time,omitempty"`
 	}{e.Data, sampleRate, tPointer})
+}
+
+type marshallableMap map[string]interface{}
+
+func (m marshallableMap) MarshalJSON() ([]byte, error) {
+	keys := make([]string, len(m))
+	i := 0
+	for k := range m {
+		keys[i] = k
+		i++
+	}
+	sort.Strings(keys)
+	out := bytes.NewBufferString("{")
+
+	first := true
+	for _, k := range keys {
+		b, ok := maybeMarshalValue(m[k])
+		if ok {
+			if first {
+				first = false
+			} else {
+				out.WriteByte(',')
+			}
+
+			out.WriteByte('"')
+			out.Write([]byte(k))
+			out.WriteByte('"')
+			out.WriteByte(':')
+			out.Write(b)
+		}
+	}
+	out.WriteByte('}')
+	return out.Bytes(), nil
+}
+
+var (
+	ptrKinds = []reflect.Kind{reflect.Ptr, reflect.Slice, reflect.Map}
+)
+
+func maybeMarshalValue(v interface{}) ([]byte, bool) {
+	if v == nil {
+		return nil, false
+	}
+	val := reflect.ValueOf(v)
+	kind := val.Type().Kind()
+	for _, ptrKind := range ptrKinds {
+		if kind == ptrKind && val.IsNil() {
+			return nil, false
+		}
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
 }
