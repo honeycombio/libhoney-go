@@ -58,6 +58,11 @@ func TestCloseWithoutInit(t *testing.T) {
 	Close()
 }
 
+func TestResponsesRace(t *testing.T) {
+	go func() { Responses() }()
+	go func() { Responses() }()
+}
+
 func TestNewEvent(t *testing.T) {
 	resetPackageVars()
 	conf := Config{

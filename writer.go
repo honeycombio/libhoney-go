@@ -1,4 +1,4 @@
-package transmission
+package libhoney
 
 import (
 	"github.com/honeycombio/libhoney-go/transmission"
@@ -15,12 +15,12 @@ type WriterOutput struct {
 func (w *WriterOutput) Add(ev *Event) {
 	transEv := &transmission.Event{
 		APIHost:    ev.APIHost,
-		APIKey:     ev.Writekey,
+		APIKey:     ev.WriteKey,
 		Dataset:    ev.Dataset,
 		SampleRate: ev.SampleRate,
 		Timestamp:  ev.Timestamp,
 		Metadata:   ev.Metadata,
 		Data:       ev.data,
 	}
-	WriterSender.Add(transEv)
+	w.WriterSender.Add(transEv)
 }

@@ -53,9 +53,14 @@ var (
 var (
 	// singleton-like client used if you use package-level functions
 	dc = &Client{}
+
 	// responses is the interim channel to avoid breaking the API while
 	// switching types to transmission.Response
 	transitionResponses chan Response
+
+	// oneResp protects the transitional responses channel from racing on
+	// creation if multiple goroutines ask for the responses channel
+	oneResp sync.Once
 )
 
 // default is a mute statsd; intended to be overridden
@@ -168,8 +173,9 @@ func Init(conf Config) error {
 
 	// set up default Logger because we're going to use it for the transmission
 	if conf.Logger == nil {
-		clientConf.Logger = &nullLogger{}
+		conf.Logger = &nullLogger{}
 	}
+	clientConf.Logger = conf.Logger
 
 	// set up defaults for the Transmission
 	if conf.MaxBatchSize == 0 {
@@ -485,18 +491,20 @@ func SendNow(data interface{}) error {
 // Responses returns the channel from which the caller can read the responses
 // to sent events. Responses is deprecated; please use TxResponses instead.
 func Responses() chan Response {
-	// TODO protect with a sync.Once
-	if transitionResponses == nil {
-		transitionResponses = make(chan Response, cap(dc.TxResponses()))
-		go func() {
-			for {
-				txResp := <-dc.TxResponses()
-				resp := Response{}
-				resp.Response = txResp
-				transitionResponses <- resp
-			}
-		}()
-	}
+	oneResp.Do(func() {
+		if transitionResponses == nil {
+			transitionResponses = make(chan Response, cap(dc.TxResponses()))
+			go func() {
+				resps := dc.TxResponses()
+				for txResp := range resps {
+					resp := Response{}
+					resp.Response = txResp
+					transitionResponses <- resp
+				}
+				close(transitionResponses)
+			}()
+		}
+	})
 	return transitionResponses
 }
 
