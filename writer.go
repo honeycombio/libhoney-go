@@ -24,3 +24,13 @@ func (w *WriterOutput) Add(ev *Event) {
 	}
 	w.WriterSender.Add(transEv)
 }
+
+// DiscardWriter implements the Output interface and drops all events. It is
+// deprecated and you sholud use the transmission.DiscardSender directly
+// instead. It is provided here for backwards compatibility and will be removed
+// eventually.
+type DiscardOutput struct {
+	WriterOutput
+}
+
+func (d *DiscardOutput) Add(ev *Event) {}
