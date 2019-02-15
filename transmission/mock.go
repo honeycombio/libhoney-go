@@ -4,9 +4,9 @@ import (
 	"sync"
 )
 
-// MockOutput implements the Output interface by retaining a slice of added
+// MockSender implements the Sender interface by retaining a slice of added
 // events, for use in unit tests.
-type MockOutput struct {
+type MockSender struct {
 	Started          int
 	Stopped          int
 	EventsCalled     int
@@ -16,23 +16,23 @@ type MockOutput struct {
 	sync.Mutex
 }
 
-func (m *MockOutput) Add(ev *Event) {
+func (m *MockSender) Add(ev *Event) {
 	m.Lock()
 	m.events = append(m.events, ev)
 	m.Unlock()
 }
 
-func (m *MockOutput) Start() error {
+func (m *MockSender) Start() error {
 	m.Started += 1
 	m.responses = make(chan Response, 1)
 	return nil
 }
-func (m *MockOutput) Stop() error {
+func (m *MockSender) Stop() error {
 	m.Stopped += 1
 	return nil
 }
 
-func (m *MockOutput) Events() []*Event {
+func (m *MockSender) Events() []*Event {
 	m.EventsCalled += 1
 	m.Lock()
 	defer m.Unlock()
@@ -41,11 +41,11 @@ func (m *MockOutput) Events() []*Event {
 	return output
 }
 
-func (m *MockOutput) TxResponses() chan Response {
+func (m *MockSender) TxResponses() chan Response {
 	return m.responses
 }
 
-func (m *MockOutput) SendResponse(r Response) bool {
+func (m *MockSender) SendResponse(r Response) bool {
 	if m.BlockOnResponses {
 		m.responses <- r
 	} else {

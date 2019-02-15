@@ -1,8 +1,8 @@
 package transmission
 
-// DiscardOutput implements the Output interface and drops all events.
-type DiscardOutput struct {
-	WriterOutput
+// DiscardSender implements the Sender interface and drops all events.
+type DiscardSender struct {
+	WriterSender
 }
 
-func (d *DiscardOutput) Add(ev *Event) {}
+func (d *DiscardSender) Add(ev *Event) {}

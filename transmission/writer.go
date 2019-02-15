@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// WriterOutput implements the Output interface by marshalling events to JSON
+// WriterSender implements the Sender interface by marshalling events to JSON
 // and writing to STDOUT, or to the writer W if one is specified.
-type WriterOutput struct {
+type WriterSender struct {
 	W io.Writer
 
 	BlockOnResponses  bool
@@ -20,7 +20,7 @@ type WriterOutput struct {
 	sync.Mutex
 }
 
-func (w *WriterOutput) Start() error {
+func (w *WriterSender) Start() error {
 	if w.ResponseQueueSize == 0 {
 		w.ResponseQueueSize = 100
 	}
@@ -28,11 +28,10 @@ func (w *WriterOutput) Start() error {
 	return nil
 }
 
-func (w *WriterOutput) Stop() error { return nil }
+func (w *WriterSender) Stop() error { return nil }
 
-func (w *WriterOutput) Add(ev *Event) {
+func (w *WriterSender) Add(ev *Event) {
 	var m []byte
-	func() {
 		tPointer := &(ev.Timestamp)
 		if ev.Timestamp.IsZero() {
 			tPointer = nil
@@ -51,7 +50,6 @@ func (w *WriterOutput) Add(ev *Event) {
 			Dataset    string                 `json:"dataset,omitempty"`
 		}{ev.Data, sampleRate, tPointer, ev.Dataset})
 		m = append(m, '\n')
-	}()
 
 	w.Lock()
 	defer w.Unlock()
@@ -66,11 +64,11 @@ func (w *WriterOutput) Add(ev *Event) {
 	w.SendResponse(resp)
 }
 
-func (w *WriterOutput) TxResponses() chan Response {
+func (w *WriterSender) TxResponses() chan Response {
 	return w.responses
 }
 
-func (w *WriterOutput) SendResponse(r Response) bool {
+func (w *WriterSender) SendResponse(r Response) bool {
 	if w.BlockOnResponses {
 		w.responses <- r
 	} else {

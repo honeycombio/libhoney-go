@@ -23,7 +23,7 @@ import (
 // tests interact with the same variables in a way that is not like how it
 // would be used. This function resets things to a blank state.
 func resetPackageVars() {
-	tx := &transmission.MockOutput{}
+	tx := &transmission.MockSender{}
 	dc, _ = NewClient(ClientConfig{
 		APIKey:       "twerk",
 		Dataset:      "twdds",
@@ -531,7 +531,7 @@ func TestOutputInterface(t *testing.T) {
 
 func TestSendTime(t *testing.T) {
 	resetPackageVars()
-	testTx := &transmission.MockOutput{}
+	testTx := &transmission.MockSender{}
 	Init(Config{
 		WriteKey:     "foo",
 		Dataset:      "bar",
@@ -568,7 +568,7 @@ func TestSendTime(t *testing.T) {
 
 func TestSendPresampledErrors(t *testing.T) {
 	resetPackageVars()
-	testTx := &transmission.MockOutput{}
+	testTx := &transmission.MockSender{}
 	Init(Config{Transmission: testTx})
 
 	tsts := []struct {
@@ -632,7 +632,7 @@ func TestSendPresampledErrors(t *testing.T) {
 func TestPresampledSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &transmission.MockOutput{}
+	testTx := &transmission.MockSender{}
 	testTx.Start()
 
 	dc.transmission = testTx
@@ -661,7 +661,7 @@ func TestPresampledSendSamplerate(t *testing.T) {
 func TestSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &transmission.MockOutput{}
+	testTx := &transmission.MockSender{}
 	testTx.Start()
 	rand.Seed(1)
 
@@ -834,7 +834,7 @@ func TestDataRace2(t *testing.T) {
 
 func TestDataRace3(t *testing.T) {
 	resetPackageVars()
-	testTx := &transmission.MockOutput{}
+	testTx := &transmission.MockSender{}
 	Init(Config{
 		Transmission: testTx,
 	})
@@ -905,11 +905,11 @@ func ExampleAddDynamicField() {
 func BenchmarkInit(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		Init(Config{
-			WriteKey:   "aoeu",
-			Dataset:    "oeui",
-			SampleRate: 1,
-			APIHost:    "http://localhost:8081/",
-			Output:     &MockOutput{},
+			WriteKey:     "aoeu",
+			Dataset:      "oeui",
+			SampleRate:   1,
+			APIHost:      "http://localhost:8081/",
+			Transmission: &transmission.MockSender{},
 		})
 		// create an event, add fields
 		ev := NewEvent()
@@ -923,11 +923,11 @@ func BenchmarkInit(b *testing.B) {
 
 func BenchmarkFlush(b *testing.B) {
 	Init(Config{
-		WriteKey:   "aoeu",
-		Dataset:    "oeui",
-		SampleRate: 1,
-		APIHost:    "http://localhost:8081/",
-		Output:     &MockOutput{},
+		WriteKey:     "aoeu",
+		Dataset:      "oeui",
+		SampleRate:   1,
+		APIHost:      "http://localhost:8081/",
+		Transmission: &transmission.MockSender{},
 	})
 	for n := 0; n < b.N; n++ {
 		// create an event, add fields

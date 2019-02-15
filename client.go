@@ -53,8 +53,8 @@ type ClientConfig struct {
 	// Transmission allows you to override what happens to events after you call
 	// Send() on them. By default, events are asynchronously sent to the
 	// Honeycomb API. You can use the MockOutput included in this package in
-	// unit tests, or use the WriterOutput to write events to STDOUT or to a
-	// file when developing locally.
+	// unit tests, or use the transmission.WriterSender to write events to
+	// STDOUT or to a file when developing locally.
 	Transmission transmission.Sender
 
 	// Logger defaults to nil and the SDK is silent. If you supply a logger here
@@ -117,7 +117,7 @@ func NewClient(conf ClientConfig) (*Client, error) {
 func (c *Client) ensureTransmission() {
 	c.oneTx.Do(func() {
 		if c.transmission == nil {
-			c.transmission = &transmission.DiscardOutput{}
+			c.transmission = &transmission.DiscardSender{}
 			c.transmission.Start()
 		}
 	})

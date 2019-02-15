@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWriterOutputStart(t *testing.T) {
+func TestWriterSenderStart(t *testing.T) {
 	// Starting a writer does nothing but creates the responses channel.
-	w := &WriterOutput{}
+	w := &WriterSender{}
 	assert.Nil(t, w.responses, "before starting, responses should be nil")
 	w.Start()
 	assert.NotNil(t, w.responses, "after starting, responses should be a real channel")
@@ -27,9 +27,9 @@ func (m *mockIO) Write(p []byte) (int, error) {
 	return 0, nil
 }
 
-func TestWriterOutput(t *testing.T) {
+func TestWriterSender(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
-	writer := WriterOutput{
+	writer := WriterSender{
 		W: buf,
 	}
 	ev := Event{
@@ -47,12 +47,12 @@ func TestWriterOutput(t *testing.T) {
 	)
 }
 
-func TestWriterOutputAdd(t *testing.T) {
-	// Adding an event to a WriterOutput should write the event in json form to
+func TestWriterSenderAdd(t *testing.T) {
+	// Adding an event to a WriterSender should write the event in json form to
 	// the writer that is configured on the output. It should also generate one
 	// Response per event Added.
 	mocked := &mockIO{}
-	w := &WriterOutput{
+	w := &WriterSender{
 		W:                 mocked,
 		ResponseQueueSize: 1,
 	}
@@ -73,10 +73,10 @@ func TestWriterOutputAdd(t *testing.T) {
 	}
 }
 
-func TestWriterOutputAddingResponsesNonblocking(t *testing.T) {
+func TestWriterSenderAddingResponsesNonblocking(t *testing.T) {
 	// using the public SendRespanse method should add the response to the queue
 	// while honoring the block setting
-	w := &WriterOutput{
+	w := &WriterSender{
 		W:                 ioutil.Discard,
 		BlockOnResponses:  false,
 		ResponseQueueSize: 1,
@@ -116,12 +116,12 @@ func TestWriterOutputAddingResponsesNonblocking(t *testing.T) {
 	}
 
 }
-func TestWriterOutputAddingResponsesBlocking(t *testing.T) {
+func TestWriterSenderAddingResponsesBlocking(t *testing.T) {
 	// this test has a few timeout checks. don't wait to run other tests.
 	t.Parallel()
 	// using the public SendRespanse method should add the response to the queue
 	// while honoring the block setting
-	w := &WriterOutput{
+	w := &WriterSender{
 		W:                 ioutil.Discard,
 		BlockOnResponses:  true,
 		ResponseQueueSize: 1,
