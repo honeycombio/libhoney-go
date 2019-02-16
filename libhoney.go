@@ -493,10 +493,10 @@ func SendNow(data interface{}) error {
 func Responses() chan Response {
 	oneResp.Do(func() {
 		if transitionResponses == nil {
-			transitionResponses = make(chan Response, cap(dc.TxResponses()))
+			txResponses := dc.TxResponses()
+			transitionResponses = make(chan Response, cap(txResponses))
 			go func() {
-				resps := dc.TxResponses()
-				for txResp := range resps {
+				for txResp := range txResponses {
 					resp := Response{}
 					resp.Response = txResp
 					transitionResponses <- resp

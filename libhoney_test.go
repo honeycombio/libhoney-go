@@ -49,7 +49,7 @@ func TestLibhoney(t *testing.T) {
 
 func TestCloseWithoutInit(t *testing.T) {
 	// before Init() is called, tx is an unpopulated nil interface
-	dc.transmission = nil
+	dc = &Client{}
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("recover should not have caught anything: got %v", r)
@@ -59,8 +59,18 @@ func TestCloseWithoutInit(t *testing.T) {
 }
 
 func TestResponsesRace(t *testing.T) {
-	go func() { Responses() }()
-	go func() { Responses() }()
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		Responses()
+		wg.Done()
+	}()
+	go func() {
+		Responses()
+		wg.Done()
+	}()
+
+	wg.Wait()
 }
 
 func TestNewEvent(t *testing.T) {
@@ -638,9 +648,10 @@ func TestPresampledSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
 	testTx := &transmission.MockSender{}
-	testTx.Start()
 
-	dc.transmission = testTx
+	dc, _ = NewClient(ClientConfig{
+		Transmission: testTx,
+	})
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -667,10 +678,11 @@ func TestSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
 	testTx := &transmission.MockSender{}
-	testTx.Start()
 	rand.Seed(1)
 
-	dc.transmission = testTx
+	dc, _ = NewClient(ClientConfig{
+		Transmission: testTx,
+	})
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -843,9 +855,6 @@ func TestDataRace3(t *testing.T) {
 	Init(Config{
 		Transmission: testTx,
 	})
-	testTx.Start()
-
-	dc.transmission = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{

@@ -7,7 +7,6 @@ import (
 )
 
 func TestClientAdding(t *testing.T) {
-	t.Parallel()
 	b := &Builder{
 		dynFields: make([]dynamicField, 0, 0),
 		fieldHolder: fieldHolder{
@@ -35,7 +34,6 @@ func TestClientAdding(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	t.Parallel()
 	conf := ClientConfig{
 		APIKey: "Oliver",
 	}
@@ -46,7 +44,6 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestClientIsolated(t *testing.T) {
-	t.Parallel()
 	c1, _ := NewClient(ClientConfig{})
 	c2, _ := NewClient(ClientConfig{})
 
@@ -71,7 +68,6 @@ func TestClientIsolated(t *testing.T) {
 }
 
 func TestEnsureLoggerRaces(t *testing.T) {
-	t.Parallel()
 	c := Client{}
 
 	// Close() ensures the Logger exists.
@@ -80,7 +76,6 @@ func TestEnsureLoggerRaces(t *testing.T) {
 }
 
 func TestEnsureTransmissionRaces(t *testing.T) {
-	t.Parallel()
 	c := Client{}
 
 	// TxResponses() ensures the Transmission exists.
@@ -89,7 +84,6 @@ func TestEnsureTransmissionRaces(t *testing.T) {
 }
 
 func TestEnsureBuilderRaces(t *testing.T) {
-	t.Parallel()
 	c := Client{}
 
 	// AddField() ensures the Builder exists.
