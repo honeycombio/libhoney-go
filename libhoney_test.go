@@ -89,6 +89,41 @@ func TestNewEvent(t *testing.T) {
 	testEquals(t, ev.APIHost, "http://localhost:8081/")
 }
 
+func TestNewEventRace(t *testing.T) {
+	resetPackageVars()
+	conf := Config{
+		WriteKey:     "aoeu",
+		Dataset:      "oeui",
+		SampleRate:   1,
+		APIHost:      "http://localhost:8081/", // this will be ignored
+		Transmission: &transmission.DiscardSender{},
+	}
+	Init(conf)
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	// set up a race between adding a package-level field, creating a new event,
+	// and creating a new builder (and event from that builder).
+	go func() {
+		AddField("gleeble", "glooble")
+		wg.Done()
+	}()
+	go func() {
+		ev := NewEvent()
+		ev.AddField("glarble", "glorble")
+		ev.Send()
+		wg.Done()
+	}()
+	go func() {
+		b := NewBuilder()
+		b.AddField("buildarble", "buildeeble")
+		ev := b.NewEvent()
+		ev.AddField("eveeble", "evooble")
+		ev.Send()
+		wg.Done()
+	}()
+	wg.Wait()
+}
+
 func TestAddField(t *testing.T) {
 	resetPackageVars()
 	conf := Config{

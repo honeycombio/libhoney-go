@@ -116,6 +116,7 @@ func TestWriterSenderAddingResponsesNonblocking(t *testing.T) {
 	}
 
 }
+
 func TestWriterSenderAddingResponsesBlocking(t *testing.T) {
 	// this test has a few timeout checks. don't wait to run other tests.
 	t.Parallel()

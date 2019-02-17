@@ -1,6 +1,7 @@
 package libhoney
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -65,6 +66,43 @@ func TestClientIsolated(t *testing.T) {
 	assert.Equal(t, 53, e2.data["Philip"], "client events should have client-scoped data")
 	assert.Equal(t, nil, e2.data["Ursula"], "client events should not have other client's content")
 	assert.Equal(t, nil, e2.data["Mary"], "client events should not have global content")
+}
+
+func TestClientRaces(t *testing.T) {
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	for i := 0; i < 3; i++ {
+		go func() {
+			c, _ := NewClient(ClientConfig{})
+			c.AddField("name", "val")
+			ev := c.NewEvent()
+			ev.AddField("argel", "bargle")
+			ev.Send()
+			c.Close()
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+}
+
+func TestAddSendRaces(t *testing.T) {
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	c, _ := NewClient(ClientConfig{})
+	ev := c.NewEvent()
+	go func() {
+		ev.AddField("argle", "bargle")
+		wg.Done()
+	}()
+	go func() {
+		ev.Send()
+		wg.Done()
+	}()
+	go func() {
+		ev.AddField("foogle", "boogle")
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 func TestEnsureLoggerRaces(t *testing.T) {
