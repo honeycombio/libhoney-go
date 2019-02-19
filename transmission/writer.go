@@ -32,24 +32,24 @@ func (w *WriterSender) Stop() error { return nil }
 
 func (w *WriterSender) Add(ev *Event) {
 	var m []byte
-		tPointer := &(ev.Timestamp)
-		if ev.Timestamp.IsZero() {
-			tPointer = nil
-		}
+	tPointer := &(ev.Timestamp)
+	if ev.Timestamp.IsZero() {
+		tPointer = nil
+	}
 
-		// don't include sample rate if it's 1; this is the default
-		sampleRate := ev.SampleRate
-		if sampleRate == 1 {
-			sampleRate = 0
-		}
+	// don't include sample rate if it's 1; this is the default
+	sampleRate := ev.SampleRate
+	if sampleRate == 1 {
+		sampleRate = 0
+	}
 
-		m, _ = json.Marshal(struct {
-			Data       map[string]interface{} `json:"data"`
-			SampleRate uint                   `json:"samplerate,omitempty"`
-			Timestamp  *time.Time             `json:"time,omitempty"`
-			Dataset    string                 `json:"dataset,omitempty"`
-		}{ev.Data, sampleRate, tPointer, ev.Dataset})
-		m = append(m, '\n')
+	m, _ = json.Marshal(struct {
+		Data       map[string]interface{} `json:"data"`
+		SampleRate uint                   `json:"samplerate,omitempty"`
+		Timestamp  *time.Time             `json:"time,omitempty"`
+		Dataset    string                 `json:"dataset,omitempty"`
+	}{ev.Data, sampleRate, tPointer, ev.Dataset})
+	m = append(m, '\n')
 
 	w.Lock()
 	defer w.Unlock()
