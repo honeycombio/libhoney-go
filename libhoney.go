@@ -723,8 +723,6 @@ func (e *Event) SendPresampled() (err error) {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
 	}
 
-	// TODO do the marshaling protection that the custom marshaller used to do
-
 	e.client.ensureTransmission()
 	txEvent := &transmission.Event{
 		APIHost:    e.APIHost,
