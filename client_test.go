@@ -1,9 +1,12 @@
 package libhoney
 
 import (
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/honeycombio/libhoney-go/transmission"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -85,24 +88,77 @@ func TestClientRaces(t *testing.T) {
 	wg.Wait()
 }
 
+// dirtySender is a transmisison Sender that reads and writes all the event's
+// fields in an attempt to create a data race
+type dirtySender struct{}
+
+func (ds *dirtySender) Start() error                            { return nil }
+func (ds *dirtySender) Stop() error                             { return nil }
+func (ds *dirtySender) TxResponses() chan transmission.Response { return nil }
+func (ds *dirtySender) SendResponse(transmission.Response) bool { return true }
+func (ds *dirtySender) Add(ev *transmission.Event) {
+	// fmt.Printf("transmission address of ev.Data is %v", ev.Data)
+	oldAPIKey := ev.APIKey
+	ev.APIKey = "some new value"
+	oldDataset := ev.Dataset
+	ev.Dataset = "some different value"
+	oldSampleRate := ev.SampleRate
+	ev.SampleRate = 10
+	oldAPIHost := ev.APIHost
+	ev.APIHost = "some wacky value"
+	oldTimestamp := ev.Timestamp
+	ev.Timestamp = time.Now()
+	oldMetadata := ev.Metadata
+	ev.Metadata = "some intertype value"
+	ev.Data["new value"] = fmt.Sprintf("%s %s %d %s %s %+v", oldAPIKey,
+		oldDataset, oldSampleRate, oldAPIHost, oldTimestamp.Format(time.RFC3339), oldMetadata)
+	vals := make([]interface{}, 0)
+	keys := make([]string, 0)
+	for key, val := range ev.Data {
+		time.Sleep(1)
+		keys = append(keys, key)
+		vals = append(vals, val)
+	}
+	for _, key := range keys {
+		time.Sleep(1)
+		ev.Data[key] = "overwrite all keys in the event"
+	}
+}
+
 func TestAddSendRaces(t *testing.T) {
 	wg := sync.WaitGroup{}
-	wg.Add(3)
-	c, _ := NewClient(ClientConfig{})
+	wg.Add(1)
+	tx := &dirtySender{}
+	c, _ := NewClient(ClientConfig{
+		Transmission: tx,
+	})
 	ev := c.NewEvent()
+	ev.WriteKey = "oh my, a write"
+	ev.Dataset = "there is no data in this set"
+	ev.APIHost = "APIHostess with the mostess"
+	ev.AddField("preexisting", "condition")
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(num int) {
+			ev.AddField(fmt.Sprintf("argle%d", num), fmt.Sprintf("bargle%d", num))
+			wg.Done()
+		}(i)
+	}
 	go func() {
-		ev.AddField("argle", "bargle")
+		// fmt.Printf("libh address of ev.data is %v", &ev.data)
+		err := ev.Send()
+		assert.NoError(t, err, "sending event shouldn't error")
 		wg.Done()
 	}()
-	go func() {
-		ev.Send()
-		wg.Done()
-	}()
-	go func() {
-		ev.AddField("foogle", "boogle")
-		wg.Done()
-	}()
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(num int) {
+			ev.AddField(fmt.Sprintf("foogle%d", num), fmt.Sprintf("boogle%d", num))
+			wg.Done()
+		}(i)
+	}
 	wg.Wait()
+	// fmt.Printf("after, event data is %v", ev.data)
 }
 
 func TestEnsureLoggerRaces(t *testing.T) {

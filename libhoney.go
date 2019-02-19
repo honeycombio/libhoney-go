@@ -353,6 +353,12 @@ type Event struct {
 
 	// client is the Client to use to send events generated from this builder
 	client *Client
+
+	// sent is a bool indicating whether the event has been sent.  Once it's
+	// been sent, all changes to the event should be ignored - any calls to Add
+	// should just return immediately taking no action.
+	sent     bool
+	sendLock sync.Mutex
 }
 
 // Builder is used to create templates for new events, specifying default fields
@@ -662,6 +668,57 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 	return f.data
 }
 
+// mask the add functions on an event so that we can test the sent lock and noop
+// if the event has been sent.
+
+// AddField adds an individual metric to the event on which it is called. Note
+// that if you add a value that cannot be serialized to JSON (eg a function or
+// channel), the event will fail to send.
+//
+// Adds to an event that happen after it has been sent will return without
+// having any effect.
+func (e *Event) AddField(key string, val interface{}) {
+	e.sendLock.Lock()
+	if e.sent == true {
+		e.sendLock.Unlock()
+		return
+	}
+	e.sendLock.Unlock()
+	e.fieldHolder.AddField(key, val)
+}
+
+// Add adds a complex data type to the event on which it's called.
+// For structs, it adds each exported field. For maps, it adds each key/value.
+// Add will error on all other types.
+//
+// Adds to an event that happen after it has been sent will return without
+// having any effect.
+func (e *Event) Add(data interface{}) error {
+	e.sendLock.Lock()
+	if e.sent == true {
+		e.sendLock.Unlock()
+		return nil
+	}
+	e.sendLock.Unlock()
+	return e.fieldHolder.Add(data)
+}
+
+// AddFunc takes a function and runs it repeatedly, adding the return values
+// as fields.
+// The function should return error when it has exhausted its values
+//
+// Adds to an event that happen after it has been sent will return without
+// having any effect.
+func (e *Event) AddFunc(fn func() (string, interface{}, error)) error {
+	e.sendLock.Lock()
+	if e.sent == true {
+		e.sendLock.Unlock()
+		return nil
+	}
+	e.sendLock.Unlock()
+	return e.fieldHolder.AddFunc(fn)
+}
+
 // Send dispatches the event to be sent to Honeycomb, sampling if necessary.
 //
 // If you have sampling enabled
@@ -674,6 +731,9 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 // fields are specified in neither Config nor the Event, Send will return an
 // error.  Required fields are APIHost, WriteKey, and Dataset. Values specified
 // in an Event override Config.
+//
+// Once you Send an event, any addition calls to add data to that event will
+// return without doing anything. Once the event is sent, it becomes immutable.
 func (e *Event) Send() error {
 	dc.ensureLogger()
 	if shouldDrop(e.SampleRate) {
@@ -696,6 +756,9 @@ func (e *Event) Send() error {
 // required fields are specified in neither Config nor the Event, Send will
 // return an error.  Required fields are APIHost, WriteKey, and Dataset. Values
 // specified in an Event override Config.
+//
+// Once you Send an event, any addition calls to add data to that event will
+// return without doing anything. Once the event is sent, it becomes immutable.
 func (e *Event) SendPresampled() (err error) {
 	if e.client == nil {
 		e.client = &Client{}
@@ -713,6 +776,9 @@ func (e *Event) SendPresampled() (err error) {
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
+	// Consider making these restrictions optional; for non-Honeycomb based
+	// Sender implementations (eg STDOUT) it's totally possible to send events
+	// without an API key etc.
 	if e.APIHost == "" {
 		return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
 	}
@@ -722,6 +788,11 @@ func (e *Event) SendPresampled() (err error) {
 	if e.Dataset == "" {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
 	}
+
+	// lock the sent bool and then mark the event as sent. No more changes!
+	e.sendLock.Lock()
+	defer e.sendLock.Unlock()
+	e.sent = true
 
 	e.client.ensureTransmission()
 	txEvent := &transmission.Event{
