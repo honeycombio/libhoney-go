@@ -72,6 +72,7 @@ func TestClientIsolated(t *testing.T) {
 }
 
 func TestClientRaces(t *testing.T) {
+	t.Parallel()
 	wg := sync.WaitGroup{}
 	wg.Add(3)
 	for i := 0; i < 3; i++ {
@@ -126,6 +127,7 @@ func (ds *dirtySender) Add(ev *transmission.Event) {
 }
 
 func TestAddSendRaces(t *testing.T) {
+	t.Parallel()
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	tx := &dirtySender{}
@@ -162,25 +164,43 @@ func TestAddSendRaces(t *testing.T) {
 }
 
 func TestEnsureLoggerRaces(t *testing.T) {
+	t.Parallel()
 	c := Client{}
 
 	// Close() ensures the Logger exists.
-	go func() { c.Close() }()
-	go func() { c.Close() }()
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() { c.Close(); wg.Done() }()
+		go func() { c.Close(); wg.Done() }()
+	}
+	wg.Wait()
 }
 
 func TestEnsureTransmissionRaces(t *testing.T) {
+	t.Parallel()
 	c := Client{}
 
 	// TxResponses() ensures the Transmission exists.
-	go func() { c.TxResponses() }()
-	go func() { c.TxResponses() }()
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() { c.TxResponses(); wg.Done() }()
+		go func() { c.TxResponses(); wg.Done() }()
+	}
+	wg.Wait()
 }
 
 func TestEnsureBuilderRaces(t *testing.T) {
+	t.Parallel()
 	c := Client{}
 
 	// AddField() ensures the Builder exists.
-	go func() { c.AddField("ready, set", "GO") }()
-	go func() { c.AddField("ready, set", "GO") }()
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() { c.AddField("ready, set", "GO"); wg.Done() }()
+		go func() { c.AddField("ready, and", "GO"); wg.Done() }()
+	}
+	wg.Wait()
 }
