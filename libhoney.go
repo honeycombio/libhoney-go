@@ -284,7 +284,7 @@ func VerifyAPIKey(config Config) (team string, err error) {
 	defer func() { dc.logger.Printf("verify write key got back %s with err=%s", team, err) }()
 	if config.APIKey == "" {
 		if config.WriteKey == "" {
-			return team, errors.New("API key and Write key are both empty")
+			return team, errors.New("config.APIKey and config.WriteKey are both empty; can't verify empty ke")
 		}
 		config.APIKey = config.WriteKey
 	}
@@ -453,11 +453,7 @@ type dynamicField struct {
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
 func Close() {
-	dc.ensureLogger()
-	dc.logger.Printf("closing libhoney")
-	if dc.transmission != nil {
-		dc.transmission.Stop()
-	}
+	dc.Close()
 }
 
 // Flush closes and reopens the Output interface, ensuring events
@@ -468,12 +464,7 @@ func Close() {
 // Flush is not thread safe - use it only when you are sure that no other
 // parts of your program are calling Send
 func Flush() {
-	dc.ensureLogger()
-	dc.logger.Printf("flushing libhoney")
-	if dc.transmission != nil {
-		dc.transmission.Stop()
-		dc.transmission.Start()
-	}
+	dc.Flush()
 }
 
 // SendNow is deprecated and may be removed in a future major release.
@@ -679,11 +670,10 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 // having any effect.
 func (e *Event) AddField(key string, val interface{}) {
 	e.sendLock.Lock()
+	defer e.sendLock.Unlock()
 	if e.sent == true {
-		e.sendLock.Unlock()
 		return
 	}
-	e.sendLock.Unlock()
 	e.fieldHolder.AddField(key, val)
 }
 
@@ -695,11 +685,10 @@ func (e *Event) AddField(key string, val interface{}) {
 // having any effect.
 func (e *Event) Add(data interface{}) error {
 	e.sendLock.Lock()
+	defer e.sendLock.Unlock()
 	if e.sent == true {
-		e.sendLock.Unlock()
 		return nil
 	}
-	e.sendLock.Unlock()
 	return e.fieldHolder.Add(data)
 }
 
@@ -711,11 +700,10 @@ func (e *Event) Add(data interface{}) error {
 // having any effect.
 func (e *Event) AddFunc(fn func() (string, interface{}, error)) error {
 	e.sendLock.Lock()
+	defer e.sendLock.Unlock()
 	if e.sent == true {
-		e.sendLock.Unlock()
 		return nil
 	}
-	e.sendLock.Unlock()
 	return e.fieldHolder.AddFunc(fn)
 }
 
@@ -735,7 +723,7 @@ func (e *Event) AddFunc(fn func() (string, interface{}, error)) error {
 // Once you Send an event, any addition calls to add data to that event will
 // return without doing anything. Once the event is sent, it becomes immutable.
 func (e *Event) Send() error {
-	dc.ensureLogger()
+	e.client.ensureLogger()
 	if shouldDrop(e.SampleRate) {
 		e.client.logger.Printf("dropping event due to sampling")
 		sd.Increment("sampled")
