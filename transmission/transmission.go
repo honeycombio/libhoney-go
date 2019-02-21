@@ -72,7 +72,7 @@ func (h *Honeycomb) Start() error {
 			batches:           map[string][]*Event{},
 			httpClient: &http.Client{
 				Transport: h.Transport,
-				Timeout:   10 * time.Second,
+				Timeout:   60 * time.Second,
 			},
 			blockOnResponse: h.BlockOnResponse,
 			responses:       h.responses,

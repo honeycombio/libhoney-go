@@ -148,9 +148,6 @@ func (c *Client) ensureBuilder() {
 // Close waits for all in-flight messages to be sent. You should
 // call Close() before app termination.
 func (c *Client) Close() {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureLogger()
 	c.logger.Printf("closing libhoney client")
 	if c.transmission != nil {
@@ -166,9 +163,6 @@ func (c *Client) Close() {
 // Flush is not thread safe - use it only when you are sure that no other
 // parts of your program are calling Send
 func (c *Client) Flush() {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureLogger()
 	c.logger.Printf("flushing libhoney client")
 	if c.transmission != nil {
@@ -180,9 +174,6 @@ func (c *Client) Flush() {
 // TxResponses returns the channel from which the caller can read the responses
 // to sent events.
 func (c *Client) TxResponses() chan transmission.Response {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	return c.transmission.TxResponses()
 }
@@ -192,9 +183,6 @@ func (c *Client) TxResponses() chan transmission.Response {
 // created and added as a field (with name as the key) to the newly created
 // event.
 func (c *Client) AddDynamicField(name string, fn func() interface{}) error {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	c.ensureBuilder()
 	return c.builder.AddDynamicField(name, fn)
@@ -203,9 +191,6 @@ func (c *Client) AddDynamicField(name string, fn func() interface{}) error {
 // AddField adds a Field to the Client's scope. This metric will be inherited by
 // all builders and events.
 func (c *Client) AddField(name string, val interface{}) {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	c.ensureBuilder()
 	c.builder.AddField(name, val)
@@ -215,9 +200,6 @@ func (c *Client) AddField(name string, val interface{}) {
 // all keys in a map as individual Fields. These metrics will be inherited by
 // all builders and events.
 func (c *Client) Add(data interface{}) error {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	c.ensureBuilder()
 	return c.builder.Add(data)
@@ -226,9 +208,6 @@ func (c *Client) Add(data interface{}) error {
 // NewEvent creates a new event prepopulated with any Fields present in the
 // Client's scope.
 func (c *Client) NewEvent() *Event {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	c.ensureBuilder()
 	return c.builder.NewEvent()
@@ -237,9 +216,6 @@ func (c *Client) NewEvent() *Event {
 // NewBuilder creates a new event builder. The builder inherits any Dynamic or
 // Static Fields present in the Client's scope.
 func (c *Client) NewBuilder() *Builder {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	c.ensureBuilder()
 	return c.builder.Clone()
@@ -247,9 +223,6 @@ func (c *Client) NewBuilder() *Builder {
 
 // sendResponse sends a dropped event response down the response channel
 func (c *Client) sendDroppedResponse(e *Event, message string) {
-	if c == nil {
-		c = &Client{}
-	}
 	c.ensureTransmission()
 	r := transmission.Response{
 		Err:      errors.New(message),
