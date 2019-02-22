@@ -24,6 +24,18 @@ type errReader struct{}
 
 func (e errReader) Read(b []byte) (int, error) { return 0, errors.New("mystery read error!") }
 
+func TestEmptyHoneycombTransmission(t *testing.T) {
+	// All fields on the Honeycomb transmission are optional; an empty honeycomb
+	// transmission should work (if not very well because of zero length channels)
+	tx := &Honeycomb{}
+	tx.Start()
+	tx.Add(&Event{
+		APIKey:  "kiddly",
+		Dataset: "diddly",
+		APIHost: "doo",
+	})
+}
+
 func TestHnyTxAdd(t *testing.T) {
 	hnyTx := &Honeycomb{
 		Logger:  &nullLogger{},
