@@ -13,16 +13,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/honeycombio/libhoney-go/transmission"
 	"github.com/stretchr/testify/assert"
 
-	"gopkg.in/alexcesaro/statsd.v2"
+	statsd "gopkg.in/alexcesaro/statsd.v2"
 )
 
 // because package level vars get initialized on package inclusion, subsequent
 // tests interact with the same variables in a way that is not like how it
 // would be used. This function resets things to a blank state.
 func resetPackageVars() {
-	defaultBuilder = &Builder{}
+	tx := &transmission.MockSender{}
+	dc, _ = NewClient(ClientConfig{
+		APIKey:       "twerk",
+		Dataset:      "twdds",
+		SampleRate:   1,
+		APIHost:      "http://localhost:1234",
+		Transmission: tx,
+	})
 	sd, _ = statsd.New(statsd.Mute(true))
 }
 
@@ -36,18 +44,33 @@ func TestLibhoney(t *testing.T) {
 	}
 	err := Init(conf)
 	testOK(t, err)
-	testEquals(t, cap(responses), 2*DefaultPendingWorkCapacity)
+	testEquals(t, cap(dc.TxResponses()), 2*DefaultPendingWorkCapacity)
 }
 
 func TestCloseWithoutInit(t *testing.T) {
 	// before Init() is called, tx is an unpopulated nil interface
-	tx = nil
+	dc = &Client{}
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("recover should not have caught anything: got %v", r)
 		}
 	}()
 	Close()
+}
+
+func TestResponsesRace(t *testing.T) {
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		Responses()
+		wg.Done()
+	}()
+	go func() {
+		Responses()
+		wg.Done()
+	}()
+
+	wg.Wait()
 }
 
 func TestNewEvent(t *testing.T) {
@@ -64,6 +87,41 @@ func TestNewEvent(t *testing.T) {
 	testEquals(t, ev.Dataset, "oeui")
 	testEquals(t, ev.SampleRate, uint(1))
 	testEquals(t, ev.APIHost, "http://localhost:8081/")
+}
+
+func TestNewEventRace(t *testing.T) {
+	resetPackageVars()
+	conf := Config{
+		WriteKey:     "aoeu",
+		Dataset:      "oeui",
+		SampleRate:   1,
+		APIHost:      "http://localhost:8081/", // this will be ignored
+		Transmission: &transmission.DiscardSender{},
+	}
+	Init(conf)
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+	// set up a race between adding a package-level field, creating a new event,
+	// and creating a new builder (and event from that builder).
+	go func() {
+		AddField("gleeble", "glooble")
+		wg.Done()
+	}()
+	go func() {
+		ev := NewEvent()
+		ev.AddField("glarble", "glorble")
+		ev.Send()
+		wg.Done()
+	}()
+	go func() {
+		b := NewBuilder()
+		b.AddField("buildarble", "buildeeble")
+		ev := b.NewEvent()
+		ev.AddField("eveeble", "evooble")
+		ev.Send()
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 func TestAddField(t *testing.T) {
@@ -414,7 +472,7 @@ func TestBuilderDynFields(t *testing.T) {
 	AddDynamicField("ints", myIntFn)
 	b := NewBuilder()
 	b.AddDynamicField("strs", myStrFn)
-	testEquals(t, len(defaultBuilder.dynFields), 1)
+	testEquals(t, len(dc.builder.dynFields), 1)
 	testEquals(t, len(b.dynFields), 2)
 
 	ev1 := NewEvent()
@@ -458,7 +516,7 @@ func TestBuilderStaticFields(t *testing.T) {
 	testEquals(t, ev3.data["intF"], 1)
 	testEquals(t, ev3.data["strF"], "aoeu")
 	testEquals(t, ev3.data["floatF"], 1.234)
-	// test that the old builder didn't get the metrics added to
+	// test that the old builder didn't get the metrics a5dded to
 	// the new builder
 	ev4 := b.NewEvent()
 	testEquals(t, ev4.data["intF"], 1)
@@ -466,13 +524,30 @@ func TestBuilderStaticFields(t *testing.T) {
 	testEquals(t, ev4.data["floatF"], nil)
 }
 
-func TestSendTime(t *testing.T) {
+func TestOutputInterface(t *testing.T) {
 	resetPackageVars()
 	testTx := &MockOutput{}
 	Init(Config{
 		WriteKey: "foo",
 		Dataset:  "bar",
 		Output:   testTx,
+	})
+
+	ev := NewEvent()
+	ev.AddField("mock", "mick")
+	err := ev.Send()
+	testOK(t, err)
+	testEquals(t, len(testTx.Events()), 1)
+	testEquals(t, testTx.Events()[0].Fields(), map[string]interface{}{"mock": "mick"})
+}
+
+func TestSendTime(t *testing.T) {
+	resetPackageVars()
+	testTx := &transmission.MockSender{}
+	Init(Config{
+		WriteKey:     "foo",
+		Dataset:      "bar",
+		Transmission: testTx,
 	})
 
 	now := time.Now().Truncate(time.Millisecond)
@@ -499,21 +574,21 @@ func TestSendTime(t *testing.T) {
 		err := ev.Send()
 		testOK(t, err)
 		testEquals(t, len(testTx.Events()), i+1)
-		testEquals(t, testTx.Events()[i].Fields(), expected)
+		testEquals(t, testTx.Events()[i].Data, expected)
 	}
 }
 
 func TestSendPresampledErrors(t *testing.T) {
 	resetPackageVars()
-	testTx := &MockOutput{}
-	Init(Config{Output: testTx})
+	testTx := &transmission.MockSender{}
+	Init(Config{Transmission: testTx})
 
 	tsts := []struct {
 		ev     *Event
 		expErr error
 	}{
 		{
-			ev:     &Event{},
+			ev:     &Event{client: dc},
 			expErr: errors.New("No metrics added to event. Won't send empty event."),
 		},
 		{
@@ -521,6 +596,7 @@ func TestSendPresampledErrors(t *testing.T) {
 				fieldHolder: fieldHolder{
 					data: map[string]interface{}{"a": 1},
 				},
+				client: dc,
 			},
 			expErr: errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown."),
 		},
@@ -530,6 +606,7 @@ func TestSendPresampledErrors(t *testing.T) {
 					data: map[string]interface{}{"a": 1},
 				},
 				APIHost: "foo",
+				client:  dc,
 			},
 			expErr: errors.New("No WriteKey specified. Can't send event."),
 		},
@@ -540,6 +617,7 @@ func TestSendPresampledErrors(t *testing.T) {
 				},
 				APIHost:  "foo",
 				WriteKey: "bar",
+				client:   dc,
 			},
 			expErr: errors.New("No Dataset for Honeycomb. Can't send datasetless."),
 		},
@@ -551,6 +629,7 @@ func TestSendPresampledErrors(t *testing.T) {
 				APIHost:  "foo",
 				WriteKey: "bar",
 				Dataset:  "baz",
+				client:   dc,
 			},
 			expErr: nil,
 		},
@@ -565,10 +644,11 @@ func TestSendPresampledErrors(t *testing.T) {
 func TestPresampledSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &MockOutput{}
-	testTx.Start()
+	testTx := &transmission.MockSender{}
 
-	tx = testTx
+	dc, _ = NewClient(ClientConfig{
+		Transmission: testTx,
+	})
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -578,6 +658,7 @@ func TestPresampledSendSamplerate(t *testing.T) {
 		WriteKey:   "bar",
 		Dataset:    "baz",
 		SampleRate: 5,
+		client:     dc,
 	}
 
 	for i := 0; i < 5; i++ {
@@ -593,11 +674,12 @@ func TestPresampledSendSamplerate(t *testing.T) {
 func TestSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
-	testTx := &MockOutput{}
-	testTx.Start()
+	testTx := &transmission.MockSender{}
 	rand.Seed(1)
 
-	tx = testTx
+	dc, _ = NewClient(ClientConfig{
+		Transmission: testTx,
+	})
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -607,6 +689,7 @@ func TestSendSamplerate(t *testing.T) {
 		WriteKey:   "bar",
 		Dataset:    "baz",
 		SampleRate: 2,
+		client:     dc,
 	}
 	for i := 0; i < 10; i++ {
 		err := ev.Send()
@@ -636,8 +719,8 @@ func TestSendTestTransport(t *testing.T) {
 	})
 
 	err := SendNow(map[string]interface{}{"foo": 3})
-	tx.Stop()  // flush unsent events
-	tx.Start() // reopen tx.muster channel
+	dc.transmission.Stop()  // flush unsent events
+	dc.transmission.Start() // reopen tx.muster channel
 	testOK(t, err)
 	testEquals(t, tr.invoked, true)
 }
@@ -714,20 +797,6 @@ func TestChannelMembers(t *testing.T) {
 	testEquals(t, ev4.data["D"], 2)
 }
 
-func TestEventMarshal(t *testing.T) {
-	e := &Event{SampleRate: 1}
-	e.data = map[string]interface{}{"a": 1}
-	b, err := json.Marshal(e)
-	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1}}`)
-
-	e.Timestamp = time.Unix(1476309645, 0).UTC()
-	e.SampleRate = 5
-	b, err = json.Marshal(e)
-	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
-}
-
 func TestDataRace1(t *testing.T) {
 	e := &Event{SampleRate: 1}
 	e.data = map[string]interface{}{"a": 1}
@@ -779,13 +848,10 @@ func TestDataRace2(t *testing.T) {
 
 func TestDataRace3(t *testing.T) {
 	resetPackageVars()
-	testTx := &MockOutput{}
+	testTx := &transmission.MockSender{}
 	Init(Config{
-		Output: testTx,
+		Transmission: testTx,
 	})
-	testTx.Start()
-
-	tx = testTx
 
 	ev := &Event{
 		fieldHolder: fieldHolder{
@@ -795,6 +861,7 @@ func TestDataRace3(t *testing.T) {
 		WriteKey:   "bar",
 		Dataset:    "baz",
 		SampleRate: 1,
+		client:     dc,
 	}
 
 	var wg sync.WaitGroup
@@ -849,11 +916,11 @@ func ExampleAddDynamicField() {
 func BenchmarkInit(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		Init(Config{
-			WriteKey:   "aoeu",
-			Dataset:    "oeui",
-			SampleRate: 1,
-			APIHost:    "http://localhost:8081/",
-			Output:     &MockOutput{},
+			WriteKey:     "aoeu",
+			Dataset:      "oeui",
+			SampleRate:   1,
+			APIHost:      "http://localhost:8081/",
+			Transmission: &transmission.MockSender{},
 		})
 		// create an event, add fields
 		ev := NewEvent()
@@ -867,11 +934,11 @@ func BenchmarkInit(b *testing.B) {
 
 func BenchmarkFlush(b *testing.B) {
 	Init(Config{
-		WriteKey:   "aoeu",
-		Dataset:    "oeui",
-		SampleRate: 1,
-		APIHost:    "http://localhost:8081/",
-		Output:     &MockOutput{},
+		WriteKey:     "aoeu",
+		Dataset:      "oeui",
+		SampleRate:   1,
+		APIHost:      "http://localhost:8081/",
+		Transmission: &transmission.MockSender{},
 	})
 	for n := 0; n < b.N; n++ {
 		// create an event, add fields
