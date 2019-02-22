@@ -694,6 +694,37 @@ func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 
 }
 
+func TestBuildReqReaderNoGzip(t *testing.T) {
+	payload := []byte(`{"hello": "world"}`)
+
+	b := bytes.Buffer{}
+	g := gzip.NewWriter(&b)
+	_, err := g.Write(payload)
+	testOK(t, err)
+	testOK(t, g.Close())
+	gzippedPayload := make([]byte, b.Len())
+	_, err = b.Read(gzippedPayload)
+	testOK(t, err)
+	// Ensure that if useGzip is false, we get expected values
+	reader, gzip := buildReqReader([]byte(`{"hello": "world"}`), false)
+	testEquals(t, gzip, false)
+	readBuffer := make([]byte, len(payload))
+	_, err = reader.Read(readBuffer)
+	testOK(t, err)
+	testEquals(t, readBuffer, payload)
+
+	// Ensure that if useGzip is true, we get compressed values
+	reader, gzip = buildReqReader([]byte(`{"hello": "world"}`), true)
+	testEquals(t, gzip, true)
+	byteBuffer, ok := reader.(*bytes.Buffer)
+	testEquals(t, ok, true)
+	readBuffer = make([]byte, byteBuffer.Len())
+	_, err = reader.Read(readBuffer)
+	testOK(t, err)
+	testEquals(t, readBuffer, gzippedPayload)
+
+}
+
 func randomString(length int) string {
 	b := make([]byte, length/2)
 	rand.Read(b)

@@ -38,13 +38,14 @@ const (
 var Version string
 
 type Honeycomb struct {
-	MaxBatchSize         uint          // how many events to collect into a batch before sending
-	BatchTimeout         time.Duration // how often to send off batches
-	MaxConcurrentBatches uint          // how many batches can be inflight simultaneously
-	PendingWorkCapacity  uint          // how many events to allow to pile up
-	BlockOnSend          bool          // whether to block or drop events when the queue fills
-	BlockOnResponse      bool          // whether to block or drop responses when the queue fills
-	UserAgentAddition    string
+	MaxBatchSize           uint          // how many events to collect into a batch before sending
+	BatchTimeout           time.Duration // how often to send off batches
+	MaxConcurrentBatches   uint          // how many batches can be inflight simultaneously
+	PendingWorkCapacity    uint          // how many events to allow to pile up
+	BlockOnSend            bool          // whether to block or drop events when the queue fills
+	BlockOnResponse        bool          // whether to block or drop responses when the queue fills
+	UserAgentAddition      string
+	DisableGzipCompression bool // toggles gzip compression when sending batches of events
 
 	responses chan Response
 
@@ -74,9 +75,10 @@ func (h *Honeycomb) Start() error {
 				Transport: h.Transport,
 				Timeout:   60 * time.Second,
 			},
-			blockOnResponse: h.BlockOnResponse,
-			responses:       h.responses,
-			metrics:         h.Metrics,
+			blockOnResponse:        h.BlockOnResponse,
+			responses:              h.responses,
+			metrics:                h.Metrics,
+			disableGzipCompression: h.DisableGzipCompression,
 		}
 	}
 	return h.muster.Start()
@@ -135,10 +137,11 @@ type batchAgg struct {
 	// map of batch key to a list of events destined for that batch
 	batches map[string][]*Event
 	// Used to reenque events when an initial batch is too large
-	overflowBatches   map[string][]*Event
-	httpClient        *http.Client
-	blockOnResponse   bool
-	userAgentAddition string
+	overflowBatches        map[string][]*Event
+	httpClient             *http.Client
+	blockOnResponse        bool
+	userAgentAddition      string
+	disableGzipCompression bool
 
 	responses chan Response
 	// numEncoded       int
@@ -252,7 +255,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// build the HTTP request
-	reqBody, gzipped := buildReqReader(encEvs)
+	reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
 	url, err := url.Parse(apiHost)
 	if err != nil {
 		end := time.Now().UTC()
@@ -421,13 +424,17 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
 // the io.Reader is gzip-compressed.
-func buildReqReader(jsonEncoded []byte) (io.Reader, bool) {
-	buf := bytes.Buffer{}
-	g := gzip.NewWriter(&buf)
-	if _, err := g.Write(jsonEncoded); err == nil {
-		if err = g.Close(); err == nil { // flush
-			return &buf, true
+func buildReqReader(jsonEncoded []byte, useGzip bool) (io.Reader, bool) {
+	if useGzip {
+		buf := bytes.Buffer{}
+		g := gzip.NewWriter(&buf)
+		if _, err := g.Write(jsonEncoded); err == nil {
+			if err = g.Close(); err == nil { // flush
+				return &buf, true
+			}
 		}
+
+		return bytes.NewReader(jsonEncoded), false
 	}
 	return bytes.NewReader(jsonEncoded), false
 }
