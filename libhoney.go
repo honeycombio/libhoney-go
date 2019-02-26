@@ -33,7 +33,7 @@ const (
 	defaultSampleRate = 1
 	defaultAPIHost    = "https://api.honeycomb.io/"
 	defaultDataset    = "libhoney-go dataset"
-	version           = "1.9.2"
+	version           = "1.9.3"
 
 	// DefaultMaxBatchSize how many events to collect in a batch
 	DefaultMaxBatchSize = 50
@@ -798,6 +798,10 @@ func (e *Event) SendPresampled() (err error) {
 
 // returns true if the sample should be dropped
 func shouldDrop(rate uint) bool {
+	if rate <= 1 {
+		return false
+	}
+
 	return rand.Intn(int(rate)) != 0
 }
 

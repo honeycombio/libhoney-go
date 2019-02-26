@@ -163,6 +163,23 @@ func TestAddSendRaces(t *testing.T) {
 	// fmt.Printf("after, event data is %v", ev.data)
 }
 
+// Expected to error, but not panic.
+func TestDefaultClient(t *testing.T) {
+	t.Parallel()
+
+	c := Client{}
+	e := c.NewEvent()
+	e.AddField("foo", "bar")
+	err := e.Send()
+	assert.Error(t, err)
+
+	b := c.NewBuilder()
+	e = b.NewEvent()
+	e.AddField("foo", "bar")
+	err = e.Send()
+	assert.Error(t, err)
+}
+
 func TestEnsureLoggerRaces(t *testing.T) {
 	t.Parallel()
 	c := Client{}
