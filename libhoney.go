@@ -798,6 +798,10 @@ func (e *Event) SendPresampled() (err error) {
 
 // returns true if the sample should be dropped
 func shouldDrop(rate uint) bool {
+	if rate <= 1 {
+		return false
+	}
+
 	return rand.Intn(int(rate)) != 0
 }
 
