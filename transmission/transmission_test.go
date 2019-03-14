@@ -630,7 +630,48 @@ func TestFireBatchWithTooLargeEvent(t *testing.T) {
 	testEquals(t, len(b.overflowBatches), 0)
 	testEquals(t, len(b.overflowBatches[key]), 0)
 	testEquals(t, trt.callCount, 0)
+}
 
+// Ensure we can deal with batches whose first event won't json encode
+func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
+	trt := &testRoundTripper{}
+	b := &batchAgg{
+		httpClient:  &http.Client{Transport: trt},
+		testNower:   &fakeNower{},
+		testBlocker: &sync.WaitGroup{},
+		responses:   make(chan Response, 2),
+		metrics:     &nullMetrics{},
+	}
+
+	// add two events, a broken and a valid.
+	b.Add(&Event{
+		Data:       map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)},
+		SampleRate: 1,
+		APIHost:    "http://fakeHost:8080",
+		APIKey:     "written",
+		Dataset:    "ds1",
+		Metadata:   fmt.Sprintf("meta %d", 0),
+	})
+	b.Add(&Event{
+		Data:       map[string]interface{}{"all_good_data": "tast"},
+		SampleRate: 1,
+		APIHost:    "http://fakeHost:8080",
+		APIKey:     "written",
+		Dataset:    "ds1",
+		Metadata:   fmt.Sprintf("meta %d", 1),
+	})
+
+	b.Fire(&testNotifier{})
+	b.testBlocker.Wait()
+	resp := testGetResponse(t, b.responses)
+	testEquals(t, resp.Metadata, "meta 0")
+	testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+	resp = testGetResponse(t, b.responses)
+	testEquals(t, resp.Metadata, "meta 1")
+	testEquals(t, resp.StatusCode, 202)
+
+	testEquals(t, len(b.overflowBatches), 0)
+	testEquals(t, trt.callCount, 1)
 }
 
 func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
