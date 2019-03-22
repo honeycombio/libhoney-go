@@ -767,14 +767,18 @@ func (e *Event) SendPresampled() (err error) {
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
-	// Consider making these restrictions optional; for non-Honeycomb based
-	// Sender implementations (eg STDOUT) it's totally possible to send events
-	// without an API key etc.
-	if e.APIHost == "" {
-		return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
-	}
-	if e.WriteKey == "" {
-		return errors.New("No WriteKey specified. Can't send event.")
+
+	// if client.transmission is transmission.Honeycomb or a pointer to same,
+	// then we should verify that APIHost and WriteKey are set. For
+	// non-Honeycomb based Sender implementations (eg STDOUT) it's totally
+	// possible to send events without an API key etc
+	if isHoneycombSender := strings.HasSuffix(reflect.TypeOf(e.client.transmission).String(), "transmission.Honeycomb"); isHoneycombSender {
+		if e.APIHost == "" {
+			return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
+		}
+		if e.WriteKey == "" {
+			return errors.New("No WriteKey specified. Can't send event.")
+		}
 	}
 	if e.Dataset == "" {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
