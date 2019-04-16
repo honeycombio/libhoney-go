@@ -284,7 +284,7 @@ func VerifyAPIKey(config Config) (team string, err error) {
 	defer func() { dc.logger.Printf("verify write key got back %s with err=%s", team, err) }()
 	if config.APIKey == "" {
 		if config.WriteKey == "" {
-			return team, errors.New("config.APIKey and config.WriteKey are both empty; can't verify empty ke")
+			return team, errors.New("config.APIKey and config.WriteKey are both empty; can't verify empty key")
 		}
 		config.APIKey = config.WriteKey
 	}
@@ -767,14 +767,22 @@ func (e *Event) SendPresampled() (err error) {
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
-	// Consider making these restrictions optional; for non-Honeycomb based
-	// Sender implementations (eg STDOUT) it's totally possible to send events
-	// without an API key etc.
-	if e.APIHost == "" {
-		return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
-	}
-	if e.WriteKey == "" {
-		return errors.New("No WriteKey specified. Can't send event.")
+
+	// if client.transmission is transmission.Honeycomb or a pointer to same,
+	// then we should verify that APIHost and WriteKey are set. For
+	// non-Honeycomb based Sender implementations (eg STDOUT) it's totally
+	// possible to send events without an API key etc
+
+	senderType := reflect.TypeOf(e.client.transmission).String()
+	isHoneycombSender := strings.HasSuffix(senderType, "transmission.Honeycomb")
+	isMockSender := strings.HasSuffix(senderType, "transmission.MockSender")
+	if isHoneycombSender || isMockSender {
+		if e.APIHost == "" {
+			return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
+		}
+		if e.WriteKey == "" {
+			return errors.New("No WriteKey specified. Can't send event.")
+		}
 	}
 	if e.Dataset == "" {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
