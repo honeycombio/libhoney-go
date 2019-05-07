@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/vmihailenco/msgpack"
 )
 
 var (
@@ -106,6 +109,38 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.req = r
 	bodyBytes, _ := ioutil.ReadAll(r.Body)
 	f.reqBody = string(bodyBytes)
+
+	// Honeycomb servers response to msgpack requests with msgpack responses,
+	// but for convenience our tests speak json. Translate as needed.
+	if r.Header.Get("Content-Type") == "application/msgpack" &&
+		f.resp != nil &&
+		f.resp.Body != nil &&
+		(f.resp.Header == nil || f.resp.Header.Get("Content-Type") != "application/msgpack") {
+		var v interface{}
+		switch {
+		case f.resp.StatusCode != http.StatusOK:
+			v = &Response{}
+		case strings.Contains(r.URL.Path, "/1/batch"):
+			v = &[]Response{}
+		default:
+			panic(fmt.Sprintf("unhandled path: %s", r.URL.Path))
+		}
+		err := json.NewDecoder(f.resp.Body).Decode(&v)
+		if err == nil {
+			var buf bytes.Buffer
+			err = msgpack.NewEncoder(&buf).Encode(&v)
+			if err != nil {
+				return nil, err
+			}
+
+			f.resp.Body = ioutil.NopCloser(&buf)
+			if f.resp.Header == nil {
+				f.resp.Header = http.Header{}
+			}
+			f.resp.Header.Set("Content-Type", "application/msgpack")
+		}
+	}
+
 	return f.resp, f.respErr
 }
 
@@ -115,150 +150,168 @@ func (tn *testNotifier) Done() {}
 
 // test the mechanics of sending / receiving responses
 func TestTxSendSingle(t *testing.T) {
-	frt := &FakeRoundTripper{}
-	b := &batchAgg{
-		httpClient:  &http.Client{Transport: frt},
-		testNower:   &fakeNower{},
-		testBlocker: &sync.WaitGroup{},
-		responses:   make(chan Response, 1),
-		metrics:     &nullMetrics{},
-	}
-	Version = "1.2.3"
-	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
-		if body == "" {
-			frt.resp = nil
-		} else {
-			frt.resp = &http.Response{
-				StatusCode: statusCode,
-				Body:       ioutil.NopCloser(strings.NewReader(body)),
-			}
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		frt := &FakeRoundTripper{}
+		b := &batchAgg{
+			httpClient:            &http.Client{Transport: frt},
+			testNower:             &fakeNower{},
+			testBlocker:           &sync.WaitGroup{},
+			responses:             make(chan Response, 1),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: doMsgpack,
 		}
-		frt.respErr = err
+		Version = "1.2.3"
+		reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
+			if body == "" {
+				frt.resp = nil
+			} else {
+				frt.resp = &http.Response{
+					StatusCode: statusCode,
+					Body:       ioutil.NopCloser(strings.NewReader(body)),
+				}
+			}
+			frt.respErr = err
+			b.batches = nil
+		}
+
+		fhData := map[string]interface{}{"foo": "bar"}
+		e := &Event{
+			Data:       fhData,
+			SampleRate: 4,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   "emmetta",
+		}
+		reset(b, frt, 200, `[{"status":202}]`, nil)
+		b.Add(e)
+		b.Fire(&testNotifier{})
+		expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
+		testEquals(t, frt.req.URL.String(), expectedURL)
+		versionedUserAgent := fmt.Sprintf("libhoney-go/%s", Version)
+		testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
+		testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.APIKey)
+		buf := &bytes.Buffer{}
+		g := gzip.NewWriter(buf)
+		if doMsgpack {
+			v := []*Event{{
+				SampleRate: 4,
+				Data: map[string]interface{}{
+					"foo": "bar",
+				},
+			}}
+			var buf bytes.Buffer
+			err := msgpack.NewEncoder(&buf).UseJSONTag(true).Encode(&v)
+			testOK(t, err)
+			_, err = g.Write(buf.Bytes())
+			testOK(t, err)
+		} else {
+			_, err := g.Write([]byte(`[{"data":{"foo":"bar"},"samplerate":4}]`))
+			testOK(t, err)
+		}
+		testOK(t, g.Close())
+		testEquals(t, frt.reqBody, buf.String())
+
+		rsp := testGetResponse(t, b.responses)
+		testEquals(t, rsp.Duration, time.Second*10)
+		testEquals(t, rsp.Metadata, "emmetta")
+		testEquals(t, rsp.StatusCode, 202)
+		testOK(t, rsp.Err)
+
+		// test UserAgentAddition
+		b.userAgentAddition = "  fancyApp/3 "
+		expectedUserAgentAddition := "fancyApp/3"
+		longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
+		reset(b, frt, 200, `[{"status":202}]`, nil)
+		b.Add(e)
+		b.Fire(&testNotifier{})
+		testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
+		rsp = testGetResponse(t, b.responses)
+		testEquals(t, rsp.StatusCode, 202)
+		testOK(t, rsp.Err)
+		b.userAgentAddition = ""
+
+		// test unsuccessful send
+		reset(b, frt, 0, "", errors.New("testing error handling"))
+		b.Add(e)
+		b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testErr(t, rsp.Err)
+		testEquals(t, rsp.StatusCode, 0)
+		testEquals(t, len(rsp.Body), 0)
+
+		// test nonblocking response path is actually nonblocking, drops response
+		b.responses <- placeholder
+		reset(b, frt, 0, "", errors.New("err"))
+		b.testBlocker.Add(1)
+		b.Add(e)
+		go b.Fire(&testNotifier{})
+		b.testBlocker.Wait() // triggered on drop
+		rsp = testGetResponse(t, b.responses)
+		testIsPlaceholderResponse(t, rsp,
+			"should pull placeholder response and only placeholder response off channel")
+
+		// test blocking response path, error
+		b.blockOnResponse = true
+		reset(b, frt, 0, "", errors.New("err"))
+		b.responses <- placeholder
+		b.Add(e)
+		go b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testIsPlaceholderResponse(t, rsp,
+			"should pull placeholder response off channel first")
+		rsp = testGetResponse(t, b.responses)
+		testErr(t, rsp.Err)
+		testEquals(t, rsp.StatusCode, 0)
+		testEquals(t, len(rsp.Body), 0)
+
+		// test blocking response path, request completed but got HTTP error code
+		b.blockOnResponse = true
+		reset(b, frt, 400, `{"error":"unknown Team key - check your credentials"}`, nil)
+		b.responses <- placeholder
+		b.Add(e)
+		go b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testIsPlaceholderResponse(t, rsp,
+			"should pull placeholder response off channel first")
+		rsp = testGetResponse(t, b.responses)
+		testEquals(t, rsp.StatusCode, 400)
+		testEquals(t, string(rsp.Body), `{"error":"unknown Team key - check your credentials"}`)
+
+		// test the case that our POST request completed, we got an HTTP error
+		// code, but then got an error reading HTTP response body. An unlikely
+		// scenario but technically possible.
+		b.blockOnResponse = true
+		frt.resp = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(errReader{}),
+		}
+		frt.respErr = nil
 		b.batches = nil
-	}
+		b.responses <- placeholder
+		b.Add(e)
+		go b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testIsPlaceholderResponse(t, rsp,
+			"should pull placeholder response off channel first")
+		rsp = testGetResponse(t, b.responses)
+		testEquals(t, rsp.Err, errors.New("Got HTTP error code but couldn't read response body: mystery read error!"))
 
-	fhData := map[string]interface{}{"foo": "bar"}
-	e := &Event{
-		Data:       fhData,
-		SampleRate: 4,
-		APIHost:    "http://fakeHost:8080",
-		APIKey:     "written",
-		Dataset:    "ds1",
-		Metadata:   "emmetta",
-	}
-	reset(b, frt, 200, `[{"status":202}]`, nil)
-	b.Add(e)
-	b.Fire(&testNotifier{})
-	expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
-	testEquals(t, frt.req.URL.String(), expectedURL)
-	versionedUserAgent := fmt.Sprintf("libhoney-go/%s", Version)
-	testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
-	testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.APIKey)
-	buf := &bytes.Buffer{}
-	g := gzip.NewWriter(buf)
-	_, err := g.Write([]byte(`[{"data":{"foo":"bar"},"samplerate":4}]`))
-	testOK(t, err)
-	testOK(t, g.Close())
-	testEquals(t, frt.reqBody, buf.String())
-
-	rsp := testGetResponse(t, b.responses)
-	testEquals(t, rsp.Duration, time.Second*10)
-	testEquals(t, rsp.Metadata, "emmetta")
-	testEquals(t, rsp.StatusCode, 202)
-	testOK(t, rsp.Err)
-
-	// test UserAgentAddition
-	b.userAgentAddition = "  fancyApp/3 "
-	expectedUserAgentAddition := "fancyApp/3"
-	longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
-	reset(b, frt, 200, `[{"status":202}]`, nil)
-	b.Add(e)
-	b.Fire(&testNotifier{})
-	testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
-	rsp = testGetResponse(t, b.responses)
-	testEquals(t, rsp.StatusCode, 202)
-	testOK(t, rsp.Err)
-	b.userAgentAddition = ""
-
-	// test unsuccessful send
-	reset(b, frt, 0, "", errors.New("testing error handling"))
-	b.Add(e)
-	b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, b.responses)
-	testErr(t, rsp.Err)
-	testEquals(t, rsp.StatusCode, 0)
-	testEquals(t, len(rsp.Body), 0)
-
-	// test nonblocking response path is actually nonblocking, drops response
-	b.responses <- placeholder
-	reset(b, frt, 0, "", errors.New("err"))
-	b.testBlocker.Add(1)
-	b.Add(e)
-	go b.Fire(&testNotifier{})
-	b.testBlocker.Wait() // triggered on drop
-	rsp = testGetResponse(t, b.responses)
-	testIsPlaceholderResponse(t, rsp,
-		"should pull placeholder response and only placeholder response off channel")
-
-	// test blocking response path, error
-	b.blockOnResponse = true
-	reset(b, frt, 0, "", errors.New("err"))
-	b.responses <- placeholder
-	b.Add(e)
-	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, b.responses)
-	testIsPlaceholderResponse(t, rsp,
-		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, b.responses)
-	testErr(t, rsp.Err)
-	testEquals(t, rsp.StatusCode, 0)
-	testEquals(t, len(rsp.Body), 0)
-
-	// test blocking response path, request completed but got HTTP error code
-	b.blockOnResponse = true
-	reset(b, frt, 400, `{"error":"unknown Team key - check your credentials"}`, nil)
-	b.responses <- placeholder
-	b.Add(e)
-	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, b.responses)
-	testIsPlaceholderResponse(t, rsp,
-		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, b.responses)
-	testEquals(t, rsp.StatusCode, 400)
-	testEquals(t, string(rsp.Body), `{"error":"unknown Team key - check your credentials"}`)
-
-	// test the case that our POST request completed, we got an HTTP error
-	// code, but then got an error reading HTTP response body. An unlikely
-	// scenario but technically possible.
-	b.blockOnResponse = true
-	frt.resp = &http.Response{
-		StatusCode: 500,
-		Body:       ioutil.NopCloser(errReader{}),
-	}
-	frt.respErr = nil
-	b.batches = nil
-	b.responses <- placeholder
-	b.Add(e)
-	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, b.responses)
-	testIsPlaceholderResponse(t, rsp,
-		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, b.responses)
-	testEquals(t, rsp.Err, errors.New("Got HTTP error code but couldn't read response body: mystery read error!"))
-
-	// test blocking response path, no error
-	b.responses <- placeholder
-	reset(b, frt, 200, `[{"status":202}]`, nil)
-	b.Add(e)
-	go b.Fire(&testNotifier{})
-	rsp = testGetResponse(t, b.responses)
-	testIsPlaceholderResponse(t, rsp,
-		"should pull placeholder response off channel first")
-	rsp = testGetResponse(t, b.responses)
-	testEquals(t, rsp.Duration, time.Second*10)
-	testEquals(t, rsp.Metadata, "emmetta")
-	testEquals(t, rsp.StatusCode, 202)
-	testOK(t, rsp.Err)
+		// test blocking response path, no error
+		b.responses <- placeholder
+		reset(b, frt, 200, `[{"status":202}]`, nil)
+		b.Add(e)
+		go b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testIsPlaceholderResponse(t, rsp,
+			"should pull placeholder response off channel first")
+		rsp = testGetResponse(t, b.responses)
+		testEquals(t, rsp.Duration, time.Second*10)
+		testEquals(t, rsp.Metadata, "emmetta")
+		testEquals(t, rsp.StatusCode, 202)
+		testOK(t, rsp.Err)
+	})
 }
 
 // test the details of handling batch behavior on a batch with a single dataset
@@ -284,7 +337,7 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 		{
 			[]map[string]interface{}{
 				{"a": 1},
-				{"b": func() {}},
+				{"b": nil},
 				{"c": 3.1},
 			},
 			`[{"status":202},{"status":202},{"status":202}]`,
@@ -296,42 +349,46 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 		},
 	}
 
-	frt := &FakeRoundTripper{
-		resp: &http.Response{
-			StatusCode: 200,
-		},
-	}
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		for _, tt := range tsts {
+			frt := &FakeRoundTripper{
+				resp: &http.Response{
+					StatusCode: 200,
+				},
+			}
 
-	for _, tt := range tsts {
-		b := &batchAgg{
-			httpClient: &http.Client{Transport: frt},
-			responses:  make(chan Response, len(tt.expected)),
-			metrics:    &nullMetrics{},
-		}
-		frt.resp.Body = ioutil.NopCloser(strings.NewReader(tt.response))
-		for i, data := range tt.in {
-			b.Add(&Event{
-				Data:     data,
-				APIHost:  "fakeHost",
-				APIKey:   "written",
-				Dataset:  "ds1",
-				Metadata: fmt.Sprint("emmetta", i), // tracking insertion order
-			})
-		}
-		b.Fire(&testNotifier{})
-		for _, expResp := range tt.expected {
-			resp := testGetResponse(t, b.responses)
-			testEquals(t, resp.StatusCode, expResp.StatusCode)
-			testEquals(t, resp.Metadata, expResp.Metadata)
-			if expResp.Err != nil {
-				if !strings.Contains(resp.Err.Error(), expResp.Err.Error()) {
-					t.Errorf("expected error to contain '%s', got: '%s'", expResp.Err.Error(), resp.Err.Error())
+			b := &batchAgg{
+				httpClient:            &http.Client{Transport: frt},
+				responses:             make(chan Response, len(tt.expected)),
+				metrics:               &nullMetrics{},
+				enableMsgpackEncoding: doMsgpack,
+			}
+			frt.resp.Body = ioutil.NopCloser(strings.NewReader(tt.response))
+			for i, data := range tt.in {
+				b.Add(&Event{
+					Data:     data,
+					APIHost:  "fakeHost",
+					APIKey:   "written",
+					Dataset:  "ds1",
+					Metadata: fmt.Sprint("emmetta", i), // tracking insertion order
+				})
+			}
+			b.Fire(&testNotifier{})
+			for _, expResp := range tt.expected {
+				resp := testGetResponse(t, b.responses)
+				testEquals(t, resp.StatusCode, expResp.StatusCode)
+				testEquals(t, resp.Metadata, expResp.Metadata)
+				if expResp.Err != nil {
+					if !strings.Contains(resp.Err.Error(), expResp.Err.Error()) {
+						t.Errorf("expected error to contain '%s', got: '%s'", expResp.Err.Error(), resp.Err.Error())
+					}
+				} else {
+					testEquals(t, resp.Err, expResp.Err)
 				}
-			} else {
-				testEquals(t, resp.Err, expResp.Err)
 			}
 		}
-	}
+	})
 }
 
 // FancyFakeRoundTripper gets built with a map of incoming URL/Header components
@@ -452,9 +509,10 @@ func TestTxSendBatchMultiple(t *testing.T) {
 
 	for _, tt := range tsts {
 		b := &batchAgg{
-			httpClient: &http.Client{Transport: ffrt},
-			responses:  make(chan Response, len(tt.expected)),
-			metrics:    &nullMetrics{},
+			httpClient:            &http.Client{Transport: ffrt},
+			responses:             make(chan Response, len(tt.expected)),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: false,
 		}
 		ffrt.reqBodies = tt.expReqBodies
 		ffrt.respBodies = tt.respBodies
@@ -504,48 +562,52 @@ func TestTxSendBatchMultiple(t *testing.T) {
 }
 
 func TestRenqueueEventsAfterOverflow(t *testing.T) {
-	frt := &FakeRoundTripper{}
-	b := &batchAgg{
-		httpClient: &http.Client{Transport: frt},
-		testNower:  &fakeNower{},
-		responses:  make(chan Response, 1),
-		metrics:    &nullMetrics{},
-	}
-
-	events := make([]*Event, 100)
-	// we make the event bodies 99KB to allow for the column name and sampleRate/Timestamp
-	// payload
-	fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
-	for i := range events {
-		events[i] = &Event{
-			Data:       fhData,
-			SampleRate: 4,
-			APIHost:    "http://fakeHost:8080",
-			APIKey:     "written",
-			Dataset:    "ds1",
-			Metadata:   "emmetta",
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		frt := &FakeRoundTripper{}
+		b := &batchAgg{
+			httpClient:            &http.Client{Transport: frt},
+			testNower:             &fakeNower{},
+			responses:             make(chan Response, 1),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: doMsgpack,
 		}
-	}
 
-	reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
-		if body == "" {
-			frt.resp = nil
-		} else {
-			frt.resp = &http.Response{
-				StatusCode: statusCode,
-				Body:       ioutil.NopCloser(strings.NewReader(body)),
+		events := make([]*Event, 100)
+		// we make the event bodies 99KB to allow for the column name and sampleRate/Timestamp
+		// payload
+		fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
+		for i := range events {
+			events[i] = &Event{
+				Data:       fhData,
+				SampleRate: 4,
+				APIHost:    "http://fakeHost:8080",
+				APIKey:     "written",
+				Dataset:    "ds1",
+				Metadata:   "emmetta",
 			}
 		}
-		frt.respErr = err
-		b.batches = nil
-	}
 
-	key := "http://fakeHost:8080_written_ds1"
+		reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
+			if body == "" {
+				frt.resp = nil
+			} else {
+				frt.resp = &http.Response{
+					StatusCode: statusCode,
+					Body:       ioutil.NopCloser(strings.NewReader(body)),
+				}
+			}
+			frt.respErr = err
+			b.batches = nil
+		}
 
-	reset(b, frt, 200, `[{"status":202}]`, nil)
-	b.fireBatch(events)
-	testEquals(t, len(b.overflowBatches), 1)
-	testEquals(t, len(b.overflowBatches[key]), 50)
+		key := "http://fakeHost:8080_written_ds1"
+
+		reset(b, frt, 200, `[{"status":202}]`, nil)
+		b.fireBatch(events)
+		testEquals(t, len(b.overflowBatches), 1)
+		testEquals(t, len(b.overflowBatches[key]), 50)
+	})
 }
 
 type testRoundTripper struct {
@@ -565,113 +627,125 @@ func (t *testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // Verify that events over the batch size limit are requeued and sent
 func TestFireBatchLargeEventsSent(t *testing.T) {
-	trt := &testRoundTripper{}
-	b := &batchAgg{
-		httpClient: &http.Client{Transport: trt},
-		testNower:  &fakeNower{},
-		responses:  make(chan Response, 1),
-		metrics:    &nullMetrics{},
-	}
-
-	events := make([]*Event, 150)
-	fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
-	for i := range events {
-		events[i] = &Event{
-			Data:       fhData,
-			SampleRate: 4,
-			APIHost:    "http://fakeHost:8080",
-			APIKey:     "written",
-			Dataset:    "ds1",
-			Metadata:   "emmetta",
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		trt := &testRoundTripper{}
+		b := &batchAgg{
+			httpClient:            &http.Client{Transport: trt},
+			testNower:             &fakeNower{},
+			responses:             make(chan Response, 1),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: doMsgpack,
 		}
-		b.Add(events[i])
-	}
 
-	key := "http://fakeHost:8080_written_ds1"
+		events := make([]*Event, 150)
+		fhData := map[string]interface{}{"reallyBigColumn": randomString(99 * 1000)}
+		for i := range events {
+			events[i] = &Event{
+				Data:       fhData,
+				SampleRate: 4,
+				APIHost:    "http://fakeHost:8080",
+				APIKey:     "written",
+				Dataset:    "ds1",
+				Metadata:   "emmetta",
+			}
+			b.Add(events[i])
+		}
 
-	b.Fire(&testNotifier{})
-	testEquals(t, len(b.overflowBatches), 0)
-	testEquals(t, len(b.overflowBatches[key]), 0)
-	testEquals(t, trt.callCount, 3)
+		key := "http://fakeHost:8080_written_ds1"
+
+		b.Fire(&testNotifier{})
+		testEquals(t, len(b.overflowBatches), 0)
+		testEquals(t, len(b.overflowBatches[key]), 0)
+		testEquals(t, trt.callCount, 3)
+	})
 }
 
 // Ensure we handle events greater than the limit by enqueuing a response
 func TestFireBatchWithTooLargeEvent(t *testing.T) {
-	trt := &testRoundTripper{}
-	b := &batchAgg{
-		httpClient:  &http.Client{Transport: trt},
-		testNower:   &fakeNower{},
-		testBlocker: &sync.WaitGroup{},
-		responses:   make(chan Response, 1),
-		metrics:     &nullMetrics{},
-	}
-
-	events := make([]*Event, 1)
-	for i := range events {
-		fhData := map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)}
-		events[i] = &Event{
-			Data:       fhData,
-			SampleRate: 4,
-			APIHost:    "http://fakeHost:8080",
-			APIKey:     "written",
-			Dataset:    "ds1",
-			Metadata:   fmt.Sprintf("meta %d", i),
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		trt := &testRoundTripper{}
+		b := &batchAgg{
+			httpClient:            &http.Client{Transport: trt},
+			testNower:             &fakeNower{},
+			testBlocker:           &sync.WaitGroup{},
+			responses:             make(chan Response, 1),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: doMsgpack,
 		}
-		b.Add(events[i])
-	}
 
-	key := "http://fakeHost:8080_written_ds1"
+		events := make([]*Event, 1)
+		for i := range events {
+			fhData := map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)}
+			events[i] = &Event{
+				Data:       fhData,
+				SampleRate: 4,
+				APIHost:    "http://fakeHost:8080",
+				APIKey:     "written",
+				Dataset:    "ds1",
+				Metadata:   fmt.Sprintf("meta %d", i),
+			}
+			b.Add(events[i])
+		}
 
-	b.Fire(&testNotifier{})
-	b.testBlocker.Wait()
-	resp := testGetResponse(t, b.responses)
-	testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+		key := "http://fakeHost:8080_written_ds1"
 
-	testEquals(t, len(b.overflowBatches), 0)
-	testEquals(t, len(b.overflowBatches[key]), 0)
-	testEquals(t, trt.callCount, 0)
+		b.Fire(&testNotifier{})
+		b.testBlocker.Wait()
+		resp := testGetResponse(t, b.responses)
+		testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+
+		testEquals(t, len(b.overflowBatches), 0)
+		testEquals(t, len(b.overflowBatches[key]), 0)
+		testEquals(t, trt.callCount, 0)
+	})
 }
 
 // Ensure we can deal with batches whose first event won't json encode
 func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
-	trt := &testRoundTripper{}
-	b := &batchAgg{
-		httpClient:  &http.Client{Transport: trt},
-		testNower:   &fakeNower{},
-		testBlocker: &sync.WaitGroup{},
-		responses:   make(chan Response, 2),
-		metrics:     &nullMetrics{},
-	}
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		trt := &testRoundTripper{}
+		b := &batchAgg{
+			httpClient:            &http.Client{Transport: trt},
+			testNower:             &fakeNower{},
+			testBlocker:           &sync.WaitGroup{},
+			responses:             make(chan Response, 2),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: doMsgpack,
+		}
 
-	// add two events, a broken and a valid.
-	b.Add(&Event{
-		Data:       map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)},
-		SampleRate: 1,
-		APIHost:    "http://fakeHost:8080",
-		APIKey:     "written",
-		Dataset:    "ds1",
-		Metadata:   fmt.Sprintf("meta %d", 0),
+		// add two events, a broken and a valid.
+		b.Add(&Event{
+			Data:       map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)},
+			SampleRate: 1,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   fmt.Sprintf("meta %d", 0),
+		})
+		b.Add(&Event{
+			Data:       map[string]interface{}{"all_good_data": "tast"},
+			SampleRate: 1,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   fmt.Sprintf("meta %d", 1),
+		})
+
+		b.Fire(&testNotifier{})
+		b.testBlocker.Wait()
+		resp := testGetResponse(t, b.responses)
+		testEquals(t, resp.Metadata, "meta 0")
+		testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+		resp = testGetResponse(t, b.responses)
+		testEquals(t, resp.Metadata, "meta 1")
+		testEquals(t, resp.StatusCode, 202)
+
+		testEquals(t, len(b.overflowBatches), 0)
+		testEquals(t, trt.callCount, 1)
 	})
-	b.Add(&Event{
-		Data:       map[string]interface{}{"all_good_data": "tast"},
-		SampleRate: 1,
-		APIHost:    "http://fakeHost:8080",
-		APIKey:     "written",
-		Dataset:    "ds1",
-		Metadata:   fmt.Sprintf("meta %d", 1),
-	})
-
-	b.Fire(&testNotifier{})
-	b.testBlocker.Wait()
-	resp := testGetResponse(t, b.responses)
-	testEquals(t, resp.Metadata, "meta 0")
-	testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
-	resp = testGetResponse(t, b.responses)
-	testEquals(t, resp.Metadata, "meta 1")
-	testEquals(t, resp.StatusCode, 202)
-
-	testEquals(t, len(b.overflowBatches), 0)
-	testEquals(t, trt.callCount, 1)
 }
 
 func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
@@ -775,11 +849,54 @@ func TestBuildReqReaderNoGzip(t *testing.T) {
 	_, err = reader.Read(readBuffer)
 	testOK(t, err)
 	testEquals(t, readBuffer, gzippedPayload)
+}
 
+func TestMsgpackArrayEncoding(t *testing.T) {
+	t.Parallel()
+
+	frt := &FakeRoundTripper{}
+	b := &batchAgg{
+		httpClient:             &http.Client{Transport: frt},
+		testNower:              &fakeNower{},
+		responses:              make(chan Response, 1),
+		metrics:                &nullMetrics{},
+		disableGzipCompression: true,
+		enableMsgpackEncoding:  true,
+	}
+	e := &Event{
+		Data: map[string]interface{}{
+			"a": 1,
+		},
+	}
+
+	for _, evCount := range []int{5, 25000, 100000} {
+		frt.resp = &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Body:       ioutil.NopCloser(errReader{}),
+		}
+		b.batches = nil
+
+		for i := 0; i < evCount; i++ {
+			b.Add(e)
+		}
+		b.Fire(&testNotifier{})
+
+		var v []interface{}
+		err := msgpack.Unmarshal([]byte(frt.reqBody), &v)
+		testOK(t, err)
+		testEquals(t, len(v), evCount)
+	}
 }
 
 func randomString(length int) string {
 	b := make([]byte, length/2)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)
+}
+
+func withJSONAndMsgpack(t *testing.T, doMsgpack *bool, f func(t *testing.T)) {
+	*doMsgpack = false
+	t.Run("json", f)
+	*doMsgpack = true
+	t.Run("msgpack", f)
 }
