@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"sort"
 	"time"
+
+	"github.com/tinylib/msgp/msgp"
 )
 
 type Event struct {
@@ -49,6 +51,37 @@ func (e *Event) MarshalJSON() ([]byte, error) {
 		SampleRate uint            `json:"samplerate,omitempty"`
 		Timestamp  *time.Time      `json:"time,omitempty"`
 	}{e.Data, sampleRate, tPointer})
+}
+
+func (e *Event) Msgsize() int {
+	m := MsgpackEvent{
+		Timestamp:  MsgpTime{e.Timestamp},
+		SampleRate: e.SampleRate,
+		Data:       e.Data,
+	}
+	return m.Msgsize()
+}
+
+func (e *Event) EncodeMsg(w *msgp.Writer) error {
+	me := MsgpackEvent{
+		Timestamp:  MsgpTime{e.Timestamp},
+		SampleRate: e.SampleRate,
+		Data:       e.Data,
+	}
+	return me.EncodeMsg(w)
+}
+
+func (e *Event) DecodeMsg(r *msgp.Reader) error {
+	m := &MsgpackEvent{}
+	if err := msgp.Decode(r, m); err != nil {
+		return nil
+	}
+	*e = Event{
+		Timestamp:  m.Timestamp.Time,
+		SampleRate: m.SampleRate,
+		Data:       m.Data,
+	}
+	return nil
 }
 
 type marshallableMap map[string]interface{}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/tinylib/msgp/msgp"
 )
 
 // Response is a record of an event sent. It includes information about sending
@@ -46,6 +48,39 @@ func (r *Response) UnmarshalJSON(b []byte) error {
 	r.StatusCode = aux.Status
 	if aux.Error != "" {
 		r.Err = errors.New(aux.Error)
+	}
+	return nil
+}
+
+type responseSlice []Response
+
+func (r *responseSlice) EncodeMsg(w *msgp.Writer) error {
+	v := make(MsgpackResponseSlice, len(*r))
+	for i, resp := range *r {
+		v[i].Status = resp.StatusCode
+		if resp.Err != nil {
+			v[i].ErrorStr = resp.Err.Error()
+		}
+	}
+
+	return v.EncodeMsg(w)
+}
+
+func (r *responseSlice) DecodeMsg(reader *msgp.Reader) error {
+	var v MsgpackResponseSlice
+	err := v.DecodeMsg(reader)
+	if err != nil {
+		return nil
+	}
+
+	*r = make(responseSlice, len(v))
+	for i := range v {
+		(*r)[i] = Response{
+			StatusCode: v[i].Status,
+		}
+		if v[i].ErrorStr != "" {
+			(*r)[i].Err = errors.New(v[i].ErrorStr)
+		}
 	}
 	return nil
 }
