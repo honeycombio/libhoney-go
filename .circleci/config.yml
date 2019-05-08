@@ -30,9 +30,13 @@ jobs:
 workflows:
   build_libhoney:
     jobs:
-      - test_libhoney 8
-      - test_libhoney 9
-      - test_libhoney 10
-      - test_libhoney 11
-      - test_libhoney 12
-
+      - test_libhoney
+        goversion: 8
+      - test_libhoney
+        goversion: 9
+      - test_libhoney
+        goversion: 10
+      - test_libhoney
+        goversion: 11
+      - test_libhoney
+        goversion: 12
