@@ -31,12 +31,12 @@ workflows:
   build_libhoney:
     jobs:
       - test_libhoney
-        goversion: 8
+        goversion: "8"
       - test_libhoney
-        goversion: 9
+        goversion: "9"
       - test_libhoney
-        goversion: 10
+        goversion: "10"
       - test_libhoney
-        goversion: 11
+        goversion: "11"
       - test_libhoney
-        goversion: 12
+        goversion: "12"
