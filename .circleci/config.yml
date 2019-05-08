@@ -1,34 +1,55 @@
-version: 2
+version: 2.1
 
-common: &common
-  working_directory: /go/src/github.com/honeycombio/libhoney-go
-  steps:
-    - checkout
-    - run: go get -v -t -d ./...
-    - run: go test -race -v ./...
+commands:
+  runtests:
+    steps:
+      - checkout
+      - run: go get -v -t -d ./...
+      - run: go test -race -v ./...
 
+executors:
+  go18:
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    docker:
+      - image: circleci/golang:1.8
+  go19:
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    docker:
+      - image: circleci/golang:1.9
+  go110:
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    docker:
+      - image: circleci/golang:1.10
+  go111:
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    docker:
+      - image: circleci/golang:1.11
+  go112:
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    docker:
+      - image: circleci/golang:1.12
 
 jobs:
   test_go18:
-    docker:
-      - image: circleci/golang:1.8
-    <<: *common
+    executor: go18
+    steps:
+      - runtests
   test_go19:
-    docker:
-      - image: circleci/golang:1.9
-    <<: *common
+    executor: go19
+    steps:
+      - runtests
   test_go110:
-    docker:
-      - image: circleci/golang:1.10
-    <<: *common
+    executor: go110
+    steps:
+      - runtests
   test_go111:
-    docker:
-      - image: circleci/golang:1.11
-    <<: *common
+    executor: go111
+    steps:
+      - runtests
   test_go112:
-    docker:
-      - image: circleci/golang:1.12
-    <<: *common
+    executor: go112
+    steps:
+      - runtests
 
 workflows:
   version: 2
