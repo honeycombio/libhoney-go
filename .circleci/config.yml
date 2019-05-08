@@ -8,56 +8,31 @@ commands:
       - run: go test -race -v ./...
 
 executors:
-  go18:
+  go:
+    parameters:
+      goversion:
+        type: string
+        default: "11"
     working_directory: /go/src/github.com/honeycombio/libhoney-go
     docker:
-      - image: circleci/golang:1.8
-  go19:
-    working_directory: /go/src/github.com/honeycombio/libhoney-go
-    docker:
-      - image: circleci/golang:1.9
-  go110:
-    working_directory: /go/src/github.com/honeycombio/libhoney-go
-    docker:
-      - image: circleci/golang:1.10
-  go111:
-    working_directory: /go/src/github.com/honeycombio/libhoney-go
-    docker:
-      - image: circleci/golang:1.11
-  go112:
-    working_directory: /go/src/github.com/honeycombio/libhoney-go
-    docker:
-      - image: circleci/golang:1.12
+      - image: "circleci/golang:1.<< parameters.goversion >>"
 
 jobs:
-  test_go18:
-    executor: go18
-    steps:
-      - runtests
-  test_go19:
-    executor: go19
-    steps:
-      - runtests
-  test_go110:
-    executor: go110
-    steps:
-      - runtests
-  test_go111:
-    executor: go111
-    steps:
-      - runtests
-  test_go112:
-    executor: go112
+  test_libhoney:
+    parameters:
+      goversion:
+        type: string
+        default: "11"
+    executor: go << parameters.goversion >>
     steps:
       - runtests
 
 workflows:
-  version: 2
   build_libhoney:
     jobs:
-      - test_go18
-      - test_go19
-      - test_go110
-      - test_go111
-      - test_go112
+      - test_libhoney 8
+      - test_libhoney 9
+      - test_libhoney 10
+      - test_libhoney 11
+      - test_libhoney 12
 
