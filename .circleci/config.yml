@@ -1,6 +1,6 @@
 version: 2
 
-common:
+common: &common
   working_directory: /go/src/github.com/honeycombio/libhoney-go
   steps:
     - checkout
