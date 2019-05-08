@@ -1,0 +1,39 @@
+version: 2.1
+
+executors:
+  go:
+    parameters:
+      goversion:
+        type: string
+        default: "11"
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    docker:
+      - image: circleci/golang:1.<< parameters.goversion >>
+
+jobs:
+  test_libhoney:
+    parameters:
+      goversion:
+        type: string
+        default: "11"
+    executor:
+      name: go
+      goversion: "<< parameters.goversion >>"
+    steps:
+      - checkout
+      - run: go get -v -t -d ./...
+      - run: go test -race -v ./...
+
+workflows:
+  build_libhoney:
+    jobs:
+      - test_libhoney:
+          goversion: "8"
+      - test_libhoney:
+          goversion: "9"
+      - test_libhoney:
+          goversion: "10"
+      - test_libhoney:
+          goversion: "11"
+      - test_libhoney:
+          goversion: "12"
