@@ -23,7 +23,8 @@ jobs:
       goversion:
         type: string
         default: "11"
-    executor: go << parameters.goversion >>
+    executor: go
+      goversion: << parameters.goversion >>
     steps:
       - runtests
 
