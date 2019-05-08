@@ -8,7 +8,7 @@ jobs:
       # specify the version
       - image: circleci/golang:1.8
 
-    working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
     steps:
       - checkout
 
@@ -21,7 +21,7 @@ jobs:
       # specify the version
       - image: circleci/golang:1.9
 
-    working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
     steps:
       - checkout
 
@@ -34,7 +34,7 @@ jobs:
       # specify the version
       - image: circleci/golang:1.10
 
-    working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
     steps:
       - checkout
 
@@ -47,7 +47,7 @@ jobs:
       # specify the version
       - image: circleci/golang:1.11
 
-    working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
     steps:
       - checkout
 
@@ -60,7 +60,7 @@ jobs:
       # specify the version
       - image: circleci/golang:1.12
 
-    working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
+    working_directory: /go/src/github.com/honeycombio/libhoney-go
     steps:
       - checkout
 
