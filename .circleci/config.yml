@@ -3,8 +3,6 @@
 # Check https://circleci.com/docs/2.0/language-go/ for more details
 version: 2
 jobs:
-  build:
-    - test_go18
   test_go18:
     docker:
       # specify the version
