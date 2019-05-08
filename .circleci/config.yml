@@ -1,12 +1,5 @@
 version: 2.1
 
-commands:
-  runtests:
-    steps:
-      - checkout
-      - run: go get -v -t -d ./...
-      - run: go test -race -v ./...
-
 executors:
   go:
     parameters:
@@ -27,7 +20,9 @@ jobs:
       name: go
       goversion: "<< parameters.goversion >>"
     steps:
-      - runtests
+      - checkout
+      - run: go get -v -t -d ./...
+      - run: go test -race -v ./...
 
 workflows:
   build_libhoney:
