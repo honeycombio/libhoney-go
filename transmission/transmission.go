@@ -477,7 +477,17 @@ func (b *batchAgg) encodeBatchMsgp(events []*Event) ([]byte, int) {
 	}
 
 	buf := bytes.NewBuffer(make([]byte, 0, bytesTotal))
-	msgp.Encode(buf, toEncode)
+	err := msgp.Encode(buf, toEncode)
+	if err != nil {
+		for _, ev := range toEncode {
+			b.enqueueResponse(Response{
+				Err:      err,
+				Metadata: ev.Metadata,
+			})
+		}
+		return nil, 0
+	}
+
 	return buf.Bytes(), len(toEncode)
 }
 

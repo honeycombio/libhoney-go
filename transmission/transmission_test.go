@@ -337,7 +337,7 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 		{
 			[]map[string]interface{}{
 				{"a": 1},
-				{"b": func() {}},
+				{"b": nil},
 				{"c": 3.1},
 			},
 			`[{"status":202},{"status":202},{"status":202}]`,
