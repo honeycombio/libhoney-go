@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/facebookgo/muster"
-	"github.com/tinylib/msgp/msgp"
+	"github.com/ianwilkes/msgp/msgp"
 )
 
 const (

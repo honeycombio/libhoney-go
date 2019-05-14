@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/tinylib/msgp/msgp"
+	"github.com/ianwilkes/msgp/msgp"
 )
 
 // Response is a record of an event sent. It includes information about sending

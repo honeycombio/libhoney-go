@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinylib/msgp/msgp"
+	"github.com/ianwilkes/msgp/msgp"
 )
 
 var (

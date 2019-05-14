@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinylib/msgp/msgp"
+	"github.com/ianwilkes/msgp/msgp"
 )
 
 func TestEventMarshal(t *testing.T) {
@@ -16,16 +16,17 @@ func TestEventMarshal(t *testing.T) {
 		"b": float64(1.0),
 		"c": true,
 		"d": "foo",
+		"e": time.Second,
 	}
 	b, err := json.Marshal(e)
 	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo"}}`)
+	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo","e":1000000000}}`)
 
 	e.Timestamp = time.Unix(1476309645, 0).UTC()
 	e.SampleRate = 5
 	b, err = json.Marshal(e)
 	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo"},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
+	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo","e":1000000000},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
 
 	var buf bytes.Buffer
 	err = msgp.Encode(&buf, e)
@@ -34,6 +35,14 @@ func TestEventMarshal(t *testing.T) {
 	e2 := &Event{}
 	err = msgp.Decode(&buf, e2)
 	testOK(t, err)
+
+	// a time.Duration is encoded as a plain int.
+	if asInt, ok := e2.Data["e"].(int64); ok {
+		e2.Data["e"] = time.Duration(asInt)
+	} else {
+		t.Errorf(`expected falue for "e" missing from decoded map`)
+	}
+
 	testEquals(t, e2, e)
 }
 

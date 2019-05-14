@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/tinylib/msgp/msgp"
+	"github.com/ianwilkes/msgp/msgp"
 )
 
 type Event struct {
