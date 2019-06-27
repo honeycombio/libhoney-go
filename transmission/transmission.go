@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/facebookgo/muster"
+	"github.com/vmihailenco/msgpack"
 )
 
 const (
@@ -46,6 +47,7 @@ type Honeycomb struct {
 	BlockOnResponse        bool          // whether to block or drop responses when the queue fills
 	UserAgentAddition      string
 	DisableGzipCompression bool // toggles gzip compression when sending batches of events
+	EnableMsgpackEncoding  bool // set true to revert to send events with msgpack encoding
 
 	responses chan Response
 
@@ -82,6 +84,7 @@ func (h *Honeycomb) Start() error {
 			responses:              h.responses,
 			metrics:                h.Metrics,
 			disableGzipCompression: h.DisableGzipCompression,
+			enableMsgpackEncoding:  h.EnableMsgpackEncoding,
 		}
 	}
 	return h.muster.Start()
@@ -145,6 +148,7 @@ type batchAgg struct {
 	blockOnResponse        bool
 	userAgentAddition      string
 	disableGzipCompression bool
+	enableMsgpackEncoding  bool
 
 	responses chan Response
 	// numEncoded       int
@@ -241,11 +245,25 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		// we managed to create a batch key with no events. odd. move on.
 		return
 	}
-	encEvs, numEncoded := b.encodeBatch(events)
+
+	var numEncoded int
+	var encEvs []byte
+	var contentType string
+	if b.enableMsgpackEncoding {
+		contentType = "application/msgpack"
+		encEvs, numEncoded = b.encodeBatchMsgp(events)
+	} else {
+		contentType = "application/json"
+		encEvs, numEncoded = b.encodeBatchJSON(events)
+	}
 	// if we failed to encode any events skip this batch
 	if numEncoded == 0 {
 		return
 	}
+
+	// build the HTTP request
+	reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
+
 	// get some attributes common to this entire batch up front off the first
 	// valid event (some may be nil)
 	var apiHost, writeKey, dataset string
@@ -258,14 +276,6 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		}
 	}
 
-	// sigh. dislike
-	userAgent := fmt.Sprintf("libhoney-go/%s", Version)
-	if b.userAgentAddition != "" {
-		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
-	}
-
-	// build the HTTP request
-	reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
 	url, err := url.Parse(apiHost)
 	if err != nil {
 		end := time.Now().UTC()
@@ -289,9 +299,15 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 	url.Path = path.Join(url.Path, "/1/batch", dataset)
 	req, err := http.NewRequest("POST", url.String(), reqBody)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	if gzipped {
 		req.Header.Set("Content-Encoding", "gzip")
+	}
+
+	// sigh. dislike
+	userAgent := fmt.Sprintf("libhoney-go/%s", Version)
+	if b.userAgentAddition != "" {
+		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Add("X-Honeycomb-Team", writeKey)
@@ -320,7 +336,19 @@ func (b *batchAgg) fireBatch(events []*Event) {
 
 	if resp.StatusCode != http.StatusOK {
 		b.metrics.Increment("send_errors")
-		body, err := ioutil.ReadAll(resp.Body)
+
+		var err error
+		var body []byte
+		if resp.Header.Get("Content-Type") == "application/msgpack" {
+			var errorBody interface{}
+			decoder := msgpack.NewDecoder(resp.Body)
+			err = decoder.Decode(&errorBody)
+			if err == nil {
+				body, err = json.Marshal(&errorBody)
+			}
+		} else {
+			body, err = ioutil.ReadAll(resp.Body)
+		}
 		if err != nil {
 			b.enqueueErrResponses(fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
 				events, dur/time.Duration(numEncoded))
@@ -340,8 +368,12 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// decode the responses
-	batchResponses := []Response{}
-	err = json.NewDecoder(resp.Body).Decode(&batchResponses)
+	var batchResponses []Response
+	if resp.Header.Get("Content-Type") == "application/msgpack" {
+		err = msgpack.NewDecoder(resp.Body).Decode(&batchResponses)
+	} else {
+		err = json.NewDecoder(resp.Body).Decode(&batchResponses)
+	}
 	if err != nil {
 		// if we can't decode the responses, just error out all of them
 		b.metrics.Increment("response_decode_errors")
@@ -371,7 +403,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 
 // create the JSON for this event list manually so that we can send
 // responses down the response queue for any that fail to marshal
-func (b *batchAgg) encodeBatch(events []*Event) ([]byte, int) {
+func (b *batchAgg) encodeBatchJSON(events []*Event) ([]byte, int) {
 	// track first vs. rest events for commas
 	first := true
 	// track how many we successfully encode for later bookkeeping
@@ -418,6 +450,60 @@ func (b *batchAgg) encodeBatch(events []*Event) ([]byte, int) {
 	}
 	buf.WriteByte(']')
 	return buf.Bytes(), numEncoded
+}
+
+func (b *batchAgg) encodeBatchMsgp(events []*Event) ([]byte, int) {
+	// Msgpack arrays need to be prefixed with the number of elements, but we
+	// don't know in advance how many we'll encode, because the msgpack lib
+	// doesn't do size estimation. Also, the array header is of variable size
+	// based on array length, so we'll need to do some []byte shenanigans at
+	// at the end of this to properly prepend the header.
+
+	var arrayHeader [5]byte
+	var numEncoded int
+	var buf bytes.Buffer
+
+	// Prepend space for largest possible msgpack array header.
+	buf.Write(arrayHeader[:])
+	for i, ev := range events {
+		evByt, err := msgpack.Marshal(ev)
+		if err != nil {
+			b.enqueueResponse(Response{
+				Err:      err,
+				Metadata: ev.Metadata,
+			})
+			// nil out the invalid Event so we can line up sent Events with server
+			// responses if needed. don't delete to preserve slice length.
+			events[i] = nil
+			continue
+		}
+		// if the event is too large to ever send, add an error to the queue
+		if len(evByt) > apiEventSizeMax {
+			b.enqueueResponse(Response{
+				Err:      fmt.Errorf("event exceeds max event size of %d bytes, API will not accept this event", apiEventSizeMax),
+				Metadata: ev.Metadata,
+			})
+			events[i] = nil
+			continue
+		}
+
+		if buf.Len()+len(evByt) > apiMaxBatchSize {
+			b.reenqueueEvents(events[i:])
+			break
+		}
+
+		buf.Write(evByt)
+		numEncoded++
+	}
+
+	headerBuf := bytes.NewBuffer(arrayHeader[:0])
+	msgpack.NewEncoder(headerBuf).EncodeArrayLen(numEncoded)
+
+	// Shenanigans. Chop off leading bytes we don't need, then copy in header.
+	byts := buf.Bytes()[len(arrayHeader)-headerBuf.Len():]
+	copy(byts, headerBuf.Bytes())
+
+	return byts, numEncoded
 }
 
 func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time.Duration) {
