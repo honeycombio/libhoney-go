@@ -236,6 +236,10 @@ func (b *batchAgg) Fire(notifier muster.Notifier) {
 	}
 }
 
+type httpError interface {
+	Timeout() bool
+}
+
 func (b *batchAgg) fireBatch(events []*Event) {
 	start := time.Now().UTC()
 	if b.testNower != nil {
@@ -260,9 +264,6 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	if numEncoded == 0 {
 		return
 	}
-
-	// build the HTTP request
-	reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
 
 	// get some attributes common to this entire batch up front off the first
 	// valid event (some may be nil)
@@ -297,22 +298,41 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		}
 		return
 	}
+
+	// build the HTTP request
 	url.Path = path.Join(url.Path, "/1/batch", dataset)
-	req, err := http.NewRequest("POST", url.String(), reqBody)
-	req.Header.Set("Content-Type", contentType)
-	if gzipped {
-		req.Header.Set("Content-Encoding", "gzip")
-	}
 
 	// sigh. dislike
 	userAgent := fmt.Sprintf("libhoney-go/%s", Version)
 	if b.userAgentAddition != "" {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
 	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Add("X-Honeycomb-Team", writeKey)
-	// send off batch!
-	resp, err := b.httpClient.Do(req)
+
+	// One retry allowed for connection timeouts.
+	var resp *http.Response
+	for try := 0; try < 2; try++ {
+		if try > 0 {
+			b.metrics.Increment("send_retries")
+		}
+
+		var req *http.Request
+		reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
+		req, err = http.NewRequest("POST", url.String(), reqBody)
+		req.Header.Set("Content-Type", contentType)
+		if gzipped {
+			req.Header.Set("Content-Encoding", "gzip")
+		}
+
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Add("X-Honeycomb-Team", writeKey)
+		// send off batch!
+		resp, err = b.httpClient.Do(req)
+
+		if httpErr, ok := err.(httpError); ok && httpErr.Timeout() {
+			continue
+		}
+		break
+	}
 	end := time.Now().UTC()
 	if b.testNower != nil {
 		end = b.testNower.Now()
