@@ -19,7 +19,7 @@ jobs:
     steps:
       - buildevents/start_trace
   watch:
-    executor: linuxgo
+    executor: go
     steps:
       - buildevents/watch_build_and_finish
 
