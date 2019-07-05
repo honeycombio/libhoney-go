@@ -1,5 +1,8 @@
 version: 2.1
 
+orbs:
+  buildevents: honeycombio/buildevents@0.2.0
+
 executors:
   go:
     parameters:
@@ -11,6 +14,15 @@ executors:
       - image: circleci/golang:1.<< parameters.goversion >>
 
 jobs:
+  setup:
+    executor: go
+    steps:
+      - buildevents/start_trace
+  watch:
+    executor: linuxgo
+    steps:
+      - buildevents/watch_build_and_finish
+
   test_libhoney:
     parameters:
       goversion:
@@ -20,20 +32,39 @@ jobs:
       name: go
       goversion: "<< parameters.goversion >>"
     steps:
-      - checkout
-      - run: go get -v -t -d ./...
-      - run: go test -race -v ./...
+      - buildevents/with_job_span:
+          steps:
+            - checkout
+            - run: go get -v -t -d ./...
+            - run: go test -race -v ./...
+            - buildevents/add_context:
+                field_name: go_version
+                field_value: << parameters.goversion >>
 
 workflows:
   build_libhoney:
     jobs:
+      - setup
+      - watch:
+          requires:
+            - setup
       - test_libhoney:
           goversion: "8"
+          requires:
+            - setup
       - test_libhoney:
           goversion: "9"
+          requires:
+            - setup
       - test_libhoney:
           goversion: "10"
+          requires:
+            - setup
       - test_libhoney:
           goversion: "11"
+          requires:
+            - setup
       - test_libhoney:
           goversion: "12"
+          requires:
+            - setup
