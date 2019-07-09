@@ -27,6 +27,16 @@ type errReader struct{}
 
 func (e errReader) Read(b []byte) (int, error) { return 0, errors.New("mystery read error!") }
 
+type timeoutErr struct{}
+
+func (t *timeoutErr) Error() string {
+	return "timeout"
+}
+
+func (t *timeoutErr) Timeout() bool {
+	return true
+}
+
 func TestEmptyHoneycombTransmission(t *testing.T) {
 	// All fields on the Honeycomb transmission are optional; an empty honeycomb
 	// transmission should work (if not very well because of zero length channels)
@@ -144,6 +154,19 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f.resp, f.respErr
 }
 
+type OneTimeoutRountTripper struct {
+	*FakeRoundTripper
+	doTimeout bool
+}
+
+func (f *OneTimeoutRountTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	if f.doTimeout {
+		f.doTimeout = false
+		return nil, &timeoutErr{}
+	}
+	return f.FakeRoundTripper.RoundTrip(r)
+}
+
 type testNotifier struct{}
 
 func (tn *testNotifier) Done() {}
@@ -241,6 +264,15 @@ func TestTxSendSingle(t *testing.T) {
 		testEquals(t, rsp.StatusCode, 0)
 		testEquals(t, len(rsp.Body), 0)
 
+		// test repeated http timeout
+		reset(b, frt, 0, "", &timeoutErr{})
+		b.Add(e)
+		b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testErr(t, rsp.Err)
+		testEquals(t, rsp.StatusCode, 0)
+		testEquals(t, len(rsp.Body), 0)
+
 		// test nonblocking response path is actually nonblocking, drops response
 		b.responses <- placeholder
 		reset(b, frt, 0, "", errors.New("err"))
@@ -311,6 +343,18 @@ func TestTxSendSingle(t *testing.T) {
 		testEquals(t, rsp.Metadata, "emmetta")
 		testEquals(t, rsp.StatusCode, 202)
 		testOK(t, rsp.Err)
+
+		// test single http timeout
+		reset(b, frt, 200, `[{"status":202}]`, nil)
+		b.httpClient.Transport = &OneTimeoutRountTripper{
+			FakeRoundTripper: frt,
+			doTimeout:        true,
+		}
+		b.Add(e)
+		b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testOK(t, rsp.Err)
+		testEquals(t, rsp.StatusCode, 202)
 	})
 }
 

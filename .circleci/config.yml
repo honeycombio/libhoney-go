@@ -8,7 +8,7 @@ executors:
     parameters:
       goversion:
         type: string
-        default: "11"
+        default: "12"
     working_directory: /go/src/github.com/honeycombio/libhoney-go
     docker:
       - image: circleci/golang:1.<< parameters.goversion >>
@@ -27,7 +27,7 @@ jobs:
     parameters:
       goversion:
         type: string
-        default: "11"
+        default: "12"
     executor:
       name: go
       goversion: "<< parameters.goversion >>"
@@ -46,10 +46,6 @@ workflows:
     jobs:
       - setup
       - watch:
-          requires:
-            - setup
-      - test_libhoney:
-          goversion: "8"
           requires:
             - setup
       - test_libhoney:
