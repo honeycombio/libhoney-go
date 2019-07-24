@@ -12,7 +12,6 @@ package transmission
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/DataDog/zstd"
 	"github.com/facebookgo/muster"
 	"github.com/vmihailenco/msgpack"
 )
@@ -39,15 +39,34 @@ const (
 var Version string
 
 type Honeycomb struct {
-	MaxBatchSize           uint          // how many events to collect into a batch before sending
-	BatchTimeout           time.Duration // how often to send off batches
-	MaxConcurrentBatches   uint          // how many batches can be inflight simultaneously
-	PendingWorkCapacity    uint          // how many events to allow to pile up
-	BlockOnSend            bool          // whether to block or drop events when the queue fills
-	BlockOnResponse        bool          // whether to block or drop responses when the queue fills
-	UserAgentAddition      string
-	DisableGzipCompression bool // toggles gzip compression when sending batches of events
-	EnableMsgpackEncoding  bool // set true to send events with msgpack encoding
+	// how many events to collect into a batch before sending
+	MaxBatchSize uint
+
+	// how often to send off batches
+	BatchTimeout time.Duration
+
+	// how many batches can be inflight simultaneously
+	MaxConcurrentBatches uint
+
+	// how many events to allow to pile up
+	PendingWorkCapacity uint
+
+	// whether to block or drop events when the queue fills
+	BlockOnSend bool
+
+	// whether to block or drop responses when the queue fills
+	BlockOnResponse bool
+
+	UserAgentAddition string
+
+	// toggles compression when sending batches of events
+	DisableCompression bool
+
+	// Deprecated, synonymous with DisableCompression
+	DisableGzipCompression bool
+
+	// set true to send events with msgpack encoding
+	EnableMsgpackEncoding bool
 
 	responses chan Response
 
@@ -83,7 +102,7 @@ func (h *Honeycomb) Start() error {
 			blockOnResponse:       h.BlockOnResponse,
 			responses:             h.responses,
 			metrics:               h.Metrics,
-			disableCompression:    h.DisableGzipCompression,
+			disableCompression:    h.DisableGzipCompression || h.DisableCompression,
 			enableMsgpackEncoding: h.EnableMsgpackEncoding,
 		}
 	}
@@ -320,7 +339,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		req, err = http.NewRequest("POST", url.String(), reqBody)
 		req.Header.Set("Content-Type", contentType)
 		if zipped {
-			req.Header.Set("Content-Encoding", "gzip")
+			req.Header.Set("Content-Encoding", "zstd")
 		}
 
 		req.Header.Set("User-Agent", userAgent)
@@ -538,21 +557,39 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 	}
 }
 
+var zstdBufferPool sync.Pool
+
+type pooledReader struct {
+	*bytes.Reader
+	buf []byte
+}
+
+func (r *pooledReader) Close() error {
+	zstdBufferPool.Put(r.buf)
+	r.Reader = nil
+	r.buf = nil
+	return nil
+}
+
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
-// the io.Reader is gzip-compressed.
-func buildReqReader(jsonEncoded []byte, compress bool) (io.Reader, bool) {
+// the io.Reader is compressed.
+func buildReqReader(jsonEncoded []byte, compress bool) (io.ReadCloser, bool) {
 	if compress {
-		buf := bytes.Buffer{}
-		g := gzip.NewWriter(&buf)
-		if _, err := g.Write(jsonEncoded); err == nil {
-			if err = g.Close(); err == nil { // flush
-				return &buf, true
-			}
+		// zstd streaming API is allocation-happy, so do our own buffering.
+		var buf []byte
+		if found, ok := zstdBufferPool.Get().([]byte); ok {
+			buf = found
 		}
 
-		return bytes.NewReader(jsonEncoded), false
+		if buf, err := zstd.CompressLevel(buf, jsonEncoded, 2); err == nil {
+			return &pooledReader{
+				Reader: bytes.NewReader(buf),
+				buf:    buf,
+			}, true
+		}
+
 	}
-	return bytes.NewReader(jsonEncoded), false
+	return ioutil.NopCloser(bytes.NewReader(jsonEncoded)), false
 }
 
 // nower to make testing easier
