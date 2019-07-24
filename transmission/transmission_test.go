@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/valyala/gozstd"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -463,9 +464,19 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 			f.reqBody = string(bodyBytes)
 			// build compressed copy to compare
 			expectedBuf := &bytes.Buffer{}
-			g := gzip.NewWriter(expectedBuf)
-			g.Write([]byte(reqBody))
-			g.Close()
+			switch r.Header.Get("Content-Type") {
+			case "zstd":
+				z := gozstd.NewWriter(expectedBuf)
+				defer z.Release()
+				z.Write([]byte(reqBody))
+				z.Close()
+			case "gzip":
+				g := gzip.NewWriter(expectedBuf)
+				g.Write([]byte(reqBody))
+				g.Close()
+			default:
+				expectedBuf.Write(bodyBytes)
+			}
 			// did we get the body we were expecting?
 			if f.reqBody != expectedBuf.String() {
 				continue
@@ -865,34 +876,74 @@ func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 
 }
 
-func TestBuildReqReaderNoGzip(t *testing.T) {
+func TestBuildReqReaderCompressionFlags(t *testing.T) {
 	payload := []byte(`{"hello": "world"}`)
+
+	// Ensure that if useGzip is false, we get expected values
+	reader, encoding := buildReqReader([]byte(`{"hello": "world"}`), false, false)
+	testEquals(t, encoding, "")
+	readBuffer := make([]byte, len(payload))
+	_, err := reader.Read(readBuffer)
+	testOK(t, err)
+	testEquals(t, readBuffer, payload)
 
 	b := bytes.Buffer{}
 	g := gzip.NewWriter(&b)
-	_, err := g.Write(payload)
+	_, err = g.Write(payload)
 	testOK(t, err)
 	testOK(t, g.Close())
 	gzippedPayload := make([]byte, b.Len())
 	_, err = b.Read(gzippedPayload)
 	testOK(t, err)
-	// Ensure that if useGzip is false, we get expected values
-	reader, gzip := buildReqReader([]byte(`{"hello": "world"}`), false)
-	testEquals(t, gzip, false)
-	readBuffer := make([]byte, len(payload))
-	_, err = reader.Read(readBuffer)
-	testOK(t, err)
-	testEquals(t, readBuffer, payload)
 
 	// Ensure that if useGzip is true, we get compressed values
-	reader, gzip = buildReqReader([]byte(`{"hello": "world"}`), true)
-	testEquals(t, gzip, true)
+	reader, encoding = buildReqReader([]byte(`{"hello": "world"}`), true, false)
+	testEquals(t, encoding, "gzip")
 	byteBuffer, ok := reader.(*bytes.Buffer)
 	testEquals(t, ok, true)
 	readBuffer = make([]byte, byteBuffer.Len())
 	_, err = reader.Read(readBuffer)
 	testOK(t, err)
 	testEquals(t, readBuffer, gzippedPayload)
+
+	b = bytes.Buffer{}
+	z := gozstd.NewWriter(&b)
+	defer z.Release()
+	_, err = z.Write(payload)
+	testOK(t, err)
+	testOK(t, z.Close())
+	zstdPayload := make([]byte, b.Len())
+	_, err = b.Read(zstdPayload)
+	testOK(t, err)
+
+	// Ensure that if useGzip is true, we get compressed values
+	reader, encoding = buildReqReader([]byte(`{"hello": "world"}`), true, false)
+	testEquals(t, encoding, "gzip")
+	byteBuffer, ok = reader.(*bytes.Buffer)
+	testEquals(t, ok, true)
+	readBuffer = make([]byte, byteBuffer.Len())
+	_, err = reader.Read(readBuffer)
+	testOK(t, err)
+	testEquals(t, readBuffer, gzippedPayload)
+
+	// Ensure that if useZstd is true, we get compressed values
+	reader, encoding = buildReqReader([]byte(`{"hello": "world"}`), false, true)
+	testEquals(t, encoding, "zstd")
+	byteBuffer, ok = reader.(*bytes.Buffer)
+	testEquals(t, ok, true)
+	readBuffer = make([]byte, byteBuffer.Len())
+	_, err = reader.Read(readBuffer)
+	testOK(t, err)
+	testEquals(t, readBuffer, zstdPayload)
+
+	reader, encoding = buildReqReader([]byte(`{"hello": "world"}`), true, true)
+	testEquals(t, encoding, "zstd")
+	byteBuffer, ok = reader.(*bytes.Buffer)
+	testEquals(t, ok, true)
+	readBuffer = make([]byte, byteBuffer.Len())
+	_, err = reader.Read(readBuffer)
+	testOK(t, err)
+	testEquals(t, readBuffer, zstdPayload)
 }
 
 func TestMsgpackArrayEncoding(t *testing.T) {

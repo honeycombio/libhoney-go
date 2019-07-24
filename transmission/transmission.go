@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/facebookgo/muster"
+	"github.com/valyala/gozstd"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -47,6 +48,7 @@ type Honeycomb struct {
 	BlockOnResponse        bool          // whether to block or drop responses when the queue fills
 	UserAgentAddition      string
 	DisableGzipCompression bool // toggles gzip compression when sending batches of events
+	EnableZstdCompression  bool // toggles zstd compression when sending batches of events
 	EnableMsgpackEncoding  bool // set true to revert to send events with msgpack encoding
 
 	responses chan Response
@@ -84,6 +86,7 @@ func (h *Honeycomb) Start() error {
 			responses:              h.responses,
 			metrics:                h.Metrics,
 			disableGzipCompression: h.DisableGzipCompression,
+			enableZstdCompression:  h.EnableZstdCompression,
 			enableMsgpackEncoding:  h.EnableMsgpackEncoding,
 		}
 	}
@@ -148,6 +151,7 @@ type batchAgg struct {
 	blockOnResponse        bool
 	userAgentAddition      string
 	disableGzipCompression bool
+	enableZstdCompression  bool
 	enableMsgpackEncoding  bool
 
 	responses chan Response
@@ -316,11 +320,11 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		}
 
 		var req *http.Request
-		reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
+		reqBody, encoding := buildReqReader(encEvs, !b.disableGzipCompression, b.enableZstdCompression)
 		req, err = http.NewRequest("POST", url.String(), reqBody)
 		req.Header.Set("Content-Type", contentType)
-		if gzipped {
-			req.Header.Set("Content-Encoding", "gzip")
+		if encoding != "" {
+			req.Header.Set("Content-Encoding", encoding)
 		}
 
 		req.Header.Set("User-Agent", userAgent)
@@ -540,19 +544,29 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
 // the io.Reader is gzip-compressed.
-func buildReqReader(jsonEncoded []byte, useGzip bool) (io.Reader, bool) {
+func buildReqReader(jsonEncoded []byte, useGzip, useZstd bool) (io.Reader, string) {
+	if useZstd {
+		buf := bytes.Buffer{}
+		z := gozstd.NewWriter(&buf)
+		defer z.Release()
+		if _, err := z.Write(jsonEncoded); err == nil {
+			if err = z.Close(); err == nil { // flush
+				return &buf, "zstd"
+			}
+		}
+	}
 	if useGzip {
 		buf := bytes.Buffer{}
 		g := gzip.NewWriter(&buf)
 		if _, err := g.Write(jsonEncoded); err == nil {
 			if err = g.Close(); err == nil { // flush
-				return &buf, true
+				return &buf, "gzip"
 			}
 		}
 
-		return bytes.NewReader(jsonEncoded), false
+		return bytes.NewReader(jsonEncoded), ""
 	}
-	return bytes.NewReader(jsonEncoded), false
+	return bytes.NewReader(jsonEncoded), ""
 }
 
 // nower to make testing easier
