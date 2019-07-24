@@ -2,6 +2,7 @@ package transmission
 
 import (
 	"fmt"
+	"math/rand"
 	"net/http"
 	"path/filepath"
 	"reflect"
@@ -102,4 +103,22 @@ func (f *fakeNower) Now() time.Time {
 	now := time.Unix(1277132645, 0).Add(time.Second * 10 * time.Duration(f.iter))
 	f.iter++
 	return now
+}
+
+func fakePayload(fields int) map[string]interface{} {
+	m := make(map[string]interface{}, fields)
+	for i := 0; i < fields; i++ {
+		k := randomString(10)
+		switch i % 4 {
+		case 0:
+			m[k] = randomString(20)
+		case 1:
+			m[k] = rand.Float64()
+		case 2:
+			m[k] = "POST"
+		case 3:
+			m[k] = []int{200, 201, 203, 401, 402, 404, 500}[rand.Int31n(6)]
+		}
+	}
+	return m
 }

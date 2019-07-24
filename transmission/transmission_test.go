@@ -900,12 +900,12 @@ func TestMsgpackArrayEncoding(t *testing.T) {
 
 	frt := &FakeRoundTripper{}
 	b := &batchAgg{
-		httpClient:             &http.Client{Transport: frt},
-		testNower:              &fakeNower{},
-		responses:              make(chan Response, 1),
-		metrics:                &nullMetrics{},
-		disableGzipCompression: true,
-		enableMsgpackEncoding:  true,
+		httpClient:            &http.Client{Transport: frt},
+		testNower:             &fakeNower{},
+		responses:             make(chan Response, 1),
+		metrics:               &nullMetrics{},
+		disableCompression:    true,
+		enableMsgpackEncoding: true,
 	}
 	e := &Event{
 		Data: map[string]interface{}{
@@ -943,4 +943,28 @@ func withJSONAndMsgpack(t *testing.T, doMsgpack *bool, f func(t *testing.T)) {
 	t.Run("json", f)
 	*doMsgpack = true
 	t.Run("msgpack", f)
+}
+
+func BenchmarkCompression(b *testing.B) {
+	payloads := make([]map[string]interface{}, 1000)
+	for i := range payloads {
+		payloads[i] = fakePayload(50)
+	}
+
+	payload, err := json.Marshal(payloads)
+	testOK(b, err)
+
+	b.Run("raw", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			reader, _ := buildReqReader(payload, false)
+			ioutil.ReadAll(reader)
+		}
+	})
+
+	b.Run("compressed", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			reader, _ := buildReqReader(payload, true)
+			ioutil.ReadAll(reader)
+		}
+	})
 }

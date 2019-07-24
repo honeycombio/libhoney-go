@@ -47,7 +47,7 @@ type Honeycomb struct {
 	BlockOnResponse        bool          // whether to block or drop responses when the queue fills
 	UserAgentAddition      string
 	DisableGzipCompression bool // toggles gzip compression when sending batches of events
-	EnableMsgpackEncoding  bool // set true to revert to send events with msgpack encoding
+	EnableMsgpackEncoding  bool // set true to send events with msgpack encoding
 
 	responses chan Response
 
@@ -80,11 +80,11 @@ func (h *Honeycomb) Start() error {
 				Transport: h.Transport,
 				Timeout:   60 * time.Second,
 			},
-			blockOnResponse:        h.BlockOnResponse,
-			responses:              h.responses,
-			metrics:                h.Metrics,
-			disableGzipCompression: h.DisableGzipCompression,
-			enableMsgpackEncoding:  h.EnableMsgpackEncoding,
+			blockOnResponse:       h.BlockOnResponse,
+			responses:             h.responses,
+			metrics:               h.Metrics,
+			disableCompression:    h.DisableGzipCompression,
+			enableMsgpackEncoding: h.EnableMsgpackEncoding,
 		}
 	}
 	return h.muster.Start()
@@ -143,12 +143,12 @@ type batchAgg struct {
 	// map of batch key to a list of events destined for that batch
 	batches map[string][]*Event
 	// Used to reenque events when an initial batch is too large
-	overflowBatches        map[string][]*Event
-	httpClient             *http.Client
-	blockOnResponse        bool
-	userAgentAddition      string
-	disableGzipCompression bool
-	enableMsgpackEncoding  bool
+	overflowBatches       map[string][]*Event
+	httpClient            *http.Client
+	blockOnResponse       bool
+	userAgentAddition     string
+	disableCompression    bool
+	enableMsgpackEncoding bool
 
 	responses chan Response
 	// numEncoded       int
@@ -316,10 +316,10 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		}
 
 		var req *http.Request
-		reqBody, gzipped := buildReqReader(encEvs, !b.disableGzipCompression)
+		reqBody, zipped := buildReqReader(encEvs, !b.disableCompression)
 		req, err = http.NewRequest("POST", url.String(), reqBody)
 		req.Header.Set("Content-Type", contentType)
-		if gzipped {
+		if zipped {
 			req.Header.Set("Content-Encoding", "gzip")
 		}
 
@@ -540,8 +540,8 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
 // the io.Reader is gzip-compressed.
-func buildReqReader(jsonEncoded []byte, useGzip bool) (io.Reader, bool) {
-	if useGzip {
+func buildReqReader(jsonEncoded []byte, compress bool) (io.Reader, bool) {
+	if compress {
 		buf := bytes.Buffer{}
 		g := gzip.NewWriter(&buf)
 		if _, err := g.Write(jsonEncoded); err == nil {
