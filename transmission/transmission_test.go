@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	// Use a different zstd library from the implementation, for more
+	// convincing testing.
 	"github.com/DataDog/zstd"
 	"github.com/vmihailenco/msgpack"
 )
@@ -468,15 +470,21 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
 			bodyBytes, _ := ioutil.ReadAll(r.Body)
 			f.reqBody = string(bodyBytes)
-			// build compressed copy to compare
-			expectedBytes, err := zstd.CompressLevel(nil, []byte(reqBody), 2)
-			if err != nil {
+
+			// make sure body is legitimately compressed json
+			if r.Header.Get("Content-Encoding") == "zstd" {
+				var err error
+				bodyBytes, err = zstd.Decompress(nil, bodyBytes)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			var decoded interface{}
+			if err := json.Unmarshal(bodyBytes, &decoded); err != nil {
 				return nil, err
 			}
-			// did we get the body we were expecting?
-			if f.reqBody != string(expectedBytes) {
-				continue
-			}
+
 			f.resp.Body = ioutil.NopCloser(strings.NewReader(reqBody))
 			bodyFound = true
 			break
@@ -874,8 +882,6 @@ func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 
 func TestBuildReqReaderNoGzip(t *testing.T) {
 	payload := []byte(`{"hello": "world"}`)
-	zippedPayload, err := zstd.CompressLevel(nil, payload, 2)
-	testOK(t, err)
 
 	// Ensure that if compress is false, we get expected values
 	reader, compressed := buildReqReader([]byte(`{"hello": "world"}`), false)
@@ -889,7 +895,10 @@ func TestBuildReqReaderNoGzip(t *testing.T) {
 	testEquals(t, compressed, true)
 	readBuffer, err = ioutil.ReadAll(reader)
 	testOK(t, err)
-	testEquals(t, readBuffer, zippedPayload)
+
+	decompressed, err := zstd.Decompress(nil, readBuffer)
+	testOK(t, err)
+	testEquals(t, decompressed, payload)
 }
 
 func TestMsgpackArrayEncoding(t *testing.T) {

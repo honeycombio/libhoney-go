@@ -24,8 +24,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DataDog/zstd"
 	"github.com/facebookgo/muster"
+	"github.com/klauspost/compress/zstd"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -565,29 +565,38 @@ type pooledReader struct {
 }
 
 func (r *pooledReader) Close() error {
-	zstdBufferPool.Put(r.buf)
+	zstdBufferPool.Put(r.buf[:0])
 	r.Reader = nil
 	r.buf = nil
 	return nil
+}
+
+// Instantiating a new encoder is expensive, so use a global one.
+// The docs say EncodeAll() is concurrency-safe.
+var zstdEncoder *zstd.Encoder
+
+func init() {
+	var err error
+	zstdEncoder, err = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(2)))
+	if err != nil {
+		panic(err)
+	}
 }
 
 // buildReqReader returns an io.Reader and a boolean, indicating whether or not
 // the io.Reader is compressed.
 func buildReqReader(jsonEncoded []byte, compress bool) (io.ReadCloser, bool) {
 	if compress {
-		// zstd streaming API is allocation-happy, so do our own buffering.
 		var buf []byte
 		if found, ok := zstdBufferPool.Get().([]byte); ok {
-			buf = found
+			buf = found[:0]
 		}
 
-		if buf, err := zstd.CompressLevel(buf, jsonEncoded, 2); err == nil {
-			return &pooledReader{
-				Reader: bytes.NewReader(buf),
-				buf:    buf,
-			}, true
-		}
-
+		buf = zstdEncoder.EncodeAll(jsonEncoded, buf)
+		return &pooledReader{
+			Reader: bytes.NewReader(buf),
+			buf:    buf,
+		}, true
 	}
 	return ioutil.NopCloser(bytes.NewReader(jsonEncoded)), false
 }
