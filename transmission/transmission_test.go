@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -16,6 +17,9 @@ import (
 	"testing"
 	"time"
 
+	// Use a different zstd library from the implementation, for more
+	// convincing testing.
+	"github.com/DataDog/zstd"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -216,7 +220,7 @@ func TestTxSendSingle(t *testing.T) {
 		testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
 		testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.APIKey)
 		buf := &bytes.Buffer{}
-		g := gzip.NewWriter(buf)
+		g := zstd.NewWriter(buf)
 		if doMsgpack {
 			v := []*Event{{
 				SampleRate: 4,
@@ -234,7 +238,12 @@ func TestTxSendSingle(t *testing.T) {
 			testOK(t, err)
 		}
 		testOK(t, g.Close())
-		testEquals(t, frt.reqBody, buf.String())
+
+		actual, err := zstd.Decompress(nil, []byte(frt.reqBody))
+		testOK(t, err)
+		expected, err := zstd.Decompress(nil, buf.Bytes())
+		testOK(t, err)
+		testEquals(t, actual, expected)
 
 		rsp := testGetResponse(t, b.responses)
 		testEquals(t, rsp.Duration, time.Second*10)
@@ -461,15 +470,21 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
 			bodyBytes, _ := ioutil.ReadAll(r.Body)
 			f.reqBody = string(bodyBytes)
-			// build compressed copy to compare
-			expectedBuf := &bytes.Buffer{}
-			g := gzip.NewWriter(expectedBuf)
-			g.Write([]byte(reqBody))
-			g.Close()
-			// did we get the body we were expecting?
-			if f.reqBody != expectedBuf.String() {
-				continue
+
+			// make sure body is legitimately compressed json
+			if r.Header.Get("Content-Encoding") == "zstd" {
+				var err error
+				bodyBytes, err = zstd.Decompress(nil, bodyBytes)
+				if err != nil {
+					return nil, err
+				}
 			}
+
+			var decoded interface{}
+			if err := json.Unmarshal(bodyBytes, &decoded); err != nil {
+				return nil, err
+			}
+
 			f.resp.Body = ioutil.NopCloser(strings.NewReader(reqBody))
 			bodyFound = true
 			break
@@ -868,31 +883,22 @@ func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 func TestBuildReqReaderNoGzip(t *testing.T) {
 	payload := []byte(`{"hello": "world"}`)
 
-	b := bytes.Buffer{}
-	g := gzip.NewWriter(&b)
-	_, err := g.Write(payload)
-	testOK(t, err)
-	testOK(t, g.Close())
-	gzippedPayload := make([]byte, b.Len())
-	_, err = b.Read(gzippedPayload)
-	testOK(t, err)
-	// Ensure that if useGzip is false, we get expected values
-	reader, gzip := buildReqReader([]byte(`{"hello": "world"}`), false)
-	testEquals(t, gzip, false)
-	readBuffer := make([]byte, len(payload))
-	_, err = reader.Read(readBuffer)
+	// Ensure that if compress is false, we get expected values
+	reader, compressed := buildReqReader([]byte(`{"hello": "world"}`), false)
+	testEquals(t, compressed, false)
+	readBuffer, err := ioutil.ReadAll(reader)
 	testOK(t, err)
 	testEquals(t, readBuffer, payload)
 
 	// Ensure that if useGzip is true, we get compressed values
-	reader, gzip = buildReqReader([]byte(`{"hello": "world"}`), true)
-	testEquals(t, gzip, true)
-	byteBuffer, ok := reader.(*bytes.Buffer)
-	testEquals(t, ok, true)
-	readBuffer = make([]byte, byteBuffer.Len())
-	_, err = reader.Read(readBuffer)
+	reader, compressed = buildReqReader([]byte(`{"hello": "world"}`), true)
+	testEquals(t, compressed, true)
+	readBuffer, err = ioutil.ReadAll(reader)
 	testOK(t, err)
-	testEquals(t, readBuffer, gzippedPayload)
+
+	decompressed, err := zstd.Decompress(nil, readBuffer)
+	testOK(t, err)
+	testEquals(t, decompressed, payload)
 }
 
 func TestMsgpackArrayEncoding(t *testing.T) {
@@ -900,12 +906,12 @@ func TestMsgpackArrayEncoding(t *testing.T) {
 
 	frt := &FakeRoundTripper{}
 	b := &batchAgg{
-		httpClient:             &http.Client{Transport: frt},
-		testNower:              &fakeNower{},
-		responses:              make(chan Response, 1),
-		metrics:                &nullMetrics{},
-		disableGzipCompression: true,
-		enableMsgpackEncoding:  true,
+		httpClient:            &http.Client{Transport: frt},
+		testNower:             &fakeNower{},
+		responses:             make(chan Response, 1),
+		metrics:               &nullMetrics{},
+		disableCompression:    true,
+		enableMsgpackEncoding: true,
 	}
 	e := &Event{
 		Data: map[string]interface{}{
@@ -943,4 +949,97 @@ func withJSONAndMsgpack(t *testing.T, doMsgpack *bool, f func(t *testing.T)) {
 	t.Run("json", f)
 	*doMsgpack = true
 	t.Run("msgpack", f)
+}
+
+// Not entirely realistic; most real-world data has far more repetition and
+// therefor achieves better compression.
+func TestCompressionRatio(t *testing.T) {
+	payloads := make([]map[string]interface{}, 1000)
+	for i := range payloads {
+		payloads[i] = fakePayload(50)
+	}
+
+	payload, err := json.Marshal(payloads)
+	testOK(t, err)
+
+	z, _ := buildReqReader(payload, true)
+	zData, err := ioutil.ReadAll(z)
+	testOK(t, err)
+
+	g, _ := buildGzipReader(payload, true)
+	gData, err := ioutil.ReadAll(g)
+	testOK(t, err)
+
+	t.Logf(
+		"JSON uncompressed: %d, gzip: %0.2g, zstd: %0.2g",
+		len(payload),
+		float64(len(gData))/float64(len(payload)),
+		float64(len(zData))/float64(len(payload)),
+	)
+
+	payload, err = msgpack.Marshal(payloads)
+	testOK(t, err)
+
+	z, _ = buildReqReader(payload, true)
+	zData, err = ioutil.ReadAll(z)
+	testOK(t, err)
+
+	g, _ = buildGzipReader(payload, true)
+	gData, err = ioutil.ReadAll(g)
+	testOK(t, err)
+
+	t.Logf(
+		"Msgpack uncompressed: %d, gzip: %0.2g, zstd: %0.2g",
+		len(payload),
+		float64(len(gData))/float64(len(payload)),
+		float64(len(zData))/float64(len(payload)),
+	)
+}
+
+func BenchmarkCompression(b *testing.B) {
+	payloads := make([]map[string]interface{}, 50)
+	for i := range payloads {
+		payloads[i] = fakePayload(100)
+	}
+
+	payload, err := json.Marshal(payloads)
+	testOK(b, err)
+
+	buf := make([]byte, len(payload))
+	b.Run("raw", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			reader, _ := buildReqReader(payload, false)
+			reader.Read(buf)
+			reader.Close()
+		}
+	})
+
+	b.Run("zstd", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			reader, _ := buildReqReader(payload, true)
+			reader.Read(buf)
+			reader.Close()
+		}
+	})
+
+	b.Run("gzip", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			reader, _ := buildGzipReader(payload, true)
+			reader.Read(buf)
+		}
+	})
+}
+
+// Legacy gzip compression code, for benchmark comparison purposes
+func buildGzipReader(jsonEncoded []byte, compress bool) (io.Reader, bool) {
+	if compress {
+		buf := bytes.Buffer{}
+		g := gzip.NewWriter(&buf)
+		if _, err := g.Write(jsonEncoded); err == nil {
+			if err = g.Close(); err == nil { // flush
+				return &buf, true
+			}
+		}
+	}
+	return bytes.NewReader(jsonEncoded), false
 }
