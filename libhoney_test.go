@@ -8,7 +8,9 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"net/http/httptest"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -884,6 +886,43 @@ func TestDataRace3(t *testing.T) {
 	testEquals(t, len(testTx.Events()), 1, "expected testTx num datas incorrect")
 }
 
+func TestEndToEnd(t *testing.T) {
+	eventCount := 3
+
+	server := startFakeServer(t, eventCount)
+	defer server.Close()
+
+	hc, err := NewClient(ClientConfig{
+		APIKey:     "e2e",
+		Dataset:    "e2e",
+		SampleRate: 1,
+		APIHost:    server.URL,
+	})
+	testOK(t, err)
+	defer hc.Close()
+
+	responseChan := hc.TxResponses()
+
+	for i := 0; i < eventCount; i++ {
+		ev := hc.NewEvent()
+		ev.AddField("event", i)
+		ev.AddField("method", "get")
+		ev.Send()
+	}
+	hc.Flush()
+
+	deadline := time.After(time.Second)
+	for i := 0; i < eventCount; i++ {
+		select {
+		case got := <-responseChan:
+			testEquals(t, got.StatusCode, http.StatusCreated)
+		case <-deadline:
+			t.Error("timed out waiting for response")
+			return
+		}
+	}
+}
+
 //
 //  Examples
 //
@@ -950,4 +989,61 @@ func BenchmarkFlush(b *testing.B) {
 		Flush()
 	}
 	Close()
+}
+
+func BenchmarkEndToEnd(b *testing.B) {
+	// extra response values are ignored
+	server := startFakeServer(b, DefaultMaxBatchSize)
+	defer server.Close()
+
+	hc, err := NewClient(ClientConfig{
+		APIKey:     "e2e",
+		Dataset:    "e2e",
+		SampleRate: 1,
+		APIHost:    server.URL,
+	})
+	testOK(b, err)
+	defer hc.Close()
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		ev := hc.NewEvent()
+		ev.AddField("event", n)
+		ev.AddField("method", "get")
+		ev.Send()
+	}
+}
+
+// Starts a minimalist fake server for end-to-end tests, similar to
+// transmission's FakeRoundTripper.
+func startFakeServer(t testing.TB, assumeEventCount int) *httptest.Server {
+	var cannedResponse []byte
+	if assumeEventCount > 0 {
+		responses := make([]struct {
+			Status int
+		}, assumeEventCount)
+		for i := range responses {
+			responses[i].Status = http.StatusCreated
+		}
+		var err error
+		cannedResponse, err = json.Marshal(responses)
+		testOK(t, err)
+	}
+
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Fatalf("unsupported method %s", r.Method)
+		}
+		if !strings.HasPrefix(r.URL.Path, "/1/batch") {
+			t.Fatalf("unsupported path %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		if cannedResponse != nil {
+			w.Write(cannedResponse)
+			return
+		}
+		t.Fatal("dynamic responses not yet supported")
+	}
+
+	return httptest.NewServer(http.HandlerFunc(handler))
 }
