@@ -119,9 +119,10 @@ type Config struct {
 
 	// Transmission allows you to override what happens to events after you call
 	// Send() on them. By default, events are asynchronously sent to the
-	// Honeycomb API. You can use the MockOutput included in this package in
+	// Honeycomb API. You can use the MockSender included in this package in
 	// unit tests, or use the transmission.WriterSender to write events to
-	// STDOUT or to a file when developing locally.
+	// STDOUT or to a file when developing locally. You can use
+	// transmission.MultiSender to send to more than one destination at once.
 	Transmission transmission.Sender
 
 	// Configuration for the underlying sender. It is safe (and recommended) to
