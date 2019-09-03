@@ -33,6 +33,15 @@ const (
 	apiMaxBatchSize    int = 5000000 // 5MB
 	apiEventSizeMax    int = 100000  // 100KB
 	maxOverflowBatches int = 10
+
+	// DefaultMaxBatchSize how many events to collect in a batch
+	DefaultMaxBatchSize = 50
+	// DefaultBatchTimeout how frequently to send unfilled batches
+	DefaultBatchTimeout = 100 * time.Millisecond
+	// DefaultMaxConcurrentBatches how many batches to maintain in parallel
+	DefaultMaxConcurrentBatches = 80
+	// DefaultPendingWorkCapacity how many events to queue up for busy batches
+	DefaultPendingWorkCapacity = 10000
 )
 
 // Version is the build version, set by libhoney
@@ -82,6 +91,19 @@ func (h *Honeycomb) Start() error {
 	if h.Logger == nil {
 		h.Logger = &nullLogger{}
 	}
+	if h.MaxBatchSize == 0 {
+		h.MaxBatchSize = DefaultMaxBatchSize
+	}
+	if h.MaxConcurrentBatches == 0 {
+		h.MaxConcurrentBatches = DefaultMaxConcurrentBatches
+	}
+	if h.PendingWorkCapacity == 0 {
+		h.PendingWorkCapacity = DefaultPendingWorkCapacity
+	}
+	if h.BatchTimeout == 0 {
+		h.BatchTimeout = DefaultBatchTimeout
+	}
+
 	h.Logger.Printf("default transmission starting")
 	h.responses = make(chan Response, h.PendingWorkCapacity*2)
 	h.muster.MaxBatchSize = h.MaxBatchSize
@@ -554,6 +576,21 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 				Metadata: ev.Metadata,
 			})
 		}
+	}
+}
+
+func NewDefaultTransmission() *Honeycomb {
+	// UserAgentAddition isn't set here because it resides in the libhoney package,
+	// and importing that would result in circular dependencies.
+	return &Honeycomb{
+		MaxBatchSize:         DefaultMaxBatchSize,
+		BatchTimeout:         DefaultBatchTimeout,
+		MaxConcurrentBatches: DefaultMaxConcurrentBatches,
+		PendingWorkCapacity:  DefaultPendingWorkCapacity,
+		BlockOnSend:          false,
+		BlockOnResponse:      false,
+		Logger:               &nullLogger{},
+		Metrics:              &nullMetrics{},
 	}
 }
 

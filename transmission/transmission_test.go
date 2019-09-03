@@ -20,6 +20,7 @@ import (
 	// Use a different zstd library from the implementation, for more
 	// convincing testing.
 	"github.com/DataDog/zstd"
+	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -810,7 +811,7 @@ func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
 func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 	// this test has a few timeout checks. don't wait to run other tests.
 	t.Parallel()
-	// using the public SendRespanse method should add the response to the queue
+	// using the public SendResponse method should add the response to the queue
 	// while honoring the block setting
 	w := &Honeycomb{
 		BlockOnResponse:     true,
@@ -818,7 +819,13 @@ func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 		Logger:              &nullLogger{},
 		Metrics:             &nullMetrics{},
 	}
-	w.Start()
+	err := w.Start()
+	assert.NoError(t, err)
+
+	// Great, the transmission started up. Now let's break it so that all `Add` calls
+	// go directly to the responses queue
+	w.muster.Work = nil
+
 	ev := &Event{
 		Metadata: "adder",
 	}

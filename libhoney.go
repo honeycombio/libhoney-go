@@ -34,15 +34,6 @@ const (
 	defaultAPIHost    = "https://api.honeycomb.io/"
 	defaultDataset    = "libhoney-go dataset"
 	version           = "1.12.0"
-
-	// DefaultMaxBatchSize how many events to collect in a batch
-	DefaultMaxBatchSize = 50
-	// DefaultBatchTimeout how frequently to send unfilled batches
-	DefaultBatchTimeout = 100 * time.Millisecond
-	// DefaultMaxConcurrentBatches how many batches to maintain in parallel
-	DefaultMaxConcurrentBatches = 80
-	// DefaultPendingWorkCapacity how many events to queue up for busy batches
-	DefaultPendingWorkCapacity = 10000
 )
 
 var (
@@ -101,18 +92,6 @@ type Config struct {
 	// event. default: https://api.honeycomb.io/
 	APIHost string
 
-	// BlockOnSend determines if libhoney should block or drop packets that exceed
-	// the size of the send channel (set by PendingWorkCapacity). Defaults to
-	// False - events overflowing the send channel will be dropped.
-	BlockOnSend bool
-
-	// BlockOnResponse determines if libhoney should block trying to hand
-	// responses back to the caller. If this is true and there is nothing reading
-	// from the Responses channel, it will fill up and prevent events from being
-	// sent to Honeycomb. Defaults to False - if you don't read from the Responses
-	// channel it will be ok.
-	BlockOnResponse bool
-
 	// Output is the deprecated method of manipulating how libhoney sends
 	// events. Please use Transmission instead.
 	Output Output
@@ -124,13 +103,20 @@ type Config struct {
 	// STDOUT or to a file when developing locally.
 	Transmission transmission.Sender
 
-	// Configuration for the underlying sender. It is safe (and recommended) to
-	// leave these values at their defaults. You cannot change these values
-	// after calling Init()
-	MaxBatchSize         uint          // how many events to collect into a batch before sending. Overrides DefaultMaxBatchSize.
-	SendFrequency        time.Duration // how often to send off batches. Overrides DefaultBatchTimeout.
-	MaxConcurrentBatches uint          // how many batches can be inflight simultaneously. Overrides DefaultMaxConcurrentBatches.
-	PendingWorkCapacity  uint          // how many events to allow to pile up. Overrides DefaultPendingWorkCapacity
+	// MaxBatchSize is deprecated and should not be used. To adjust this setting, override `Transmission` before calling Init().
+	MaxBatchSize uint
+	// SendFrequency is deprecated and should not be used. To adjust this setting, override `Transmission`.
+	SendFrequency time.Duration
+	// MaxConcurrentBatches is deprecated and should not be used. To adjust this setting, override `Transmission`.
+	MaxConcurrentBatches uint
+	// PendingWorkCapacity is deprecated and should not be used. To adjust this setting, override `Transmission`.
+	PendingWorkCapacity uint
+	// BlockOnSend is deprecated and should not be used. To adjust this setting, override `Transmission` before calling Init().
+	// If set to true, will override the same setting in `Transmission`
+	BlockOnSend bool
+	// BlockOnResponse is deprecated and should not be used. To adjust this setting, override `Transmission` before calling Init().
+	// If set to true, will override the same setting in `Transmission`
+	BlockOnResponse bool
 
 	// Transport is deprecated and should not be used. To set the HTTP Transport
 	// set the Transport elements on the Transmission Sender instead.
@@ -177,26 +163,49 @@ func Init(conf Config) error {
 	}
 	clientConf.Logger = conf.Logger
 
-	// set up defaults for the Transmission
-	if conf.MaxBatchSize == 0 {
-		conf.MaxBatchSize = DefaultMaxBatchSize
-	}
-	if conf.SendFrequency == 0 {
-		conf.SendFrequency = DefaultBatchTimeout
-	}
-	if conf.MaxConcurrentBatches == 0 {
-		conf.MaxConcurrentBatches = DefaultMaxConcurrentBatches
-	}
-	if conf.PendingWorkCapacity == 0 {
-		conf.PendingWorkCapacity = DefaultPendingWorkCapacity
-	}
-
 	// If both transmission and output are set, use transmission. If only one is
 	// set, use it. If neither is set, use the Honeycomb transmission
 	var t transmission.Sender
 	switch {
 	case conf.Transmission != nil:
 		t = conf.Transmission
+
+		// If this is a Honeycomb transmission, ensure key fields are set if not explicitly
+		// set by caller. This provides reasonable defaults if a sparsely populated Transmission
+		// config is supplied.
+		if ht, ok := t.(*transmission.Honeycomb); ok {
+			if ht.UserAgentAddition == "" {
+				ht.UserAgentAddition = UserAgentAddition
+			}
+			if ht.Logger == nil {
+				ht.Logger = conf.Logger
+			}
+			if ht.Metrics == nil {
+				ht.Metrics = sd
+			}
+			// If unset or set to the default value, we assign the value specified in `libhoney.Config`
+			if ht.BatchTimeout == 0 {
+				ht.BatchTimeout = conf.SendFrequency
+			}
+			if ht.MaxBatchSize == 0 {
+				ht.MaxBatchSize = conf.MaxBatchSize
+			}
+			if ht.MaxConcurrentBatches == 0 {
+				ht.MaxConcurrentBatches = conf.MaxConcurrentBatches
+			}
+			if ht.PendingWorkCapacity == 0 {
+				ht.PendingWorkCapacity = conf.PendingWorkCapacity
+			}
+			// This is tricky: we can't know if `false` in the transmission means unset or intentionally set to false.
+			// If either the conf or Transmission sets this to true, assume true
+			if !ht.BlockOnSend {
+				ht.BlockOnSend = conf.BlockOnSend
+			}
+			if !ht.BlockOnResponse {
+				ht.BlockOnResponse = conf.BlockOnResponse
+			}
+		}
+
 	case conf.Output != nil:
 		t = &transitionOutput{
 			Output:          conf.Output,
@@ -217,6 +226,7 @@ func Init(conf Config) error {
 			Metrics:              sd,
 		}
 	}
+
 	clientConf.Transmission = t
 	var err error
 	dc, err = NewClient(clientConf)

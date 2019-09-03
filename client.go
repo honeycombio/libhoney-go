@@ -82,15 +82,11 @@ func NewClient(conf ClientConfig) (*Client, error) {
 	c.ensureLogger()
 
 	if conf.Transmission == nil {
-		c.transmission = &transmission.Honeycomb{
-			MaxBatchSize:         DefaultMaxBatchSize,
-			BatchTimeout:         DefaultBatchTimeout,
-			MaxConcurrentBatches: DefaultMaxConcurrentBatches,
-			PendingWorkCapacity:  DefaultPendingWorkCapacity,
-			UserAgentAddition:    UserAgentAddition,
-			Logger:               c.logger,
-			Metrics:              sd,
-		}
+		t := transmission.NewDefaultTransmission()
+		t.UserAgentAddition = UserAgentAddition
+		t.Logger = c.logger
+		t.Metrics = sd
+		c.transmission = t
 	} else {
 		c.transmission = conf.Transmission
 	}

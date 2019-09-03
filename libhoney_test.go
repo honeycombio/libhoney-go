@@ -46,7 +46,7 @@ func TestLibhoney(t *testing.T) {
 	}
 	err := Init(conf)
 	testOK(t, err)
-	testEquals(t, cap(dc.TxResponses()), 2*DefaultPendingWorkCapacity)
+	testEquals(t, cap(dc.TxResponses()), 2*transmission.DefaultPendingWorkCapacity)
 }
 
 func TestCloseWithoutInit(t *testing.T) {
@@ -923,6 +923,69 @@ func TestEndToEnd(t *testing.T) {
 	}
 }
 
+func TestInitEmptyTransmission(t *testing.T) {
+	// Verify that if the user passes an empty transmission, we'll populate it with defaults
+	Init(Config{
+		Transmission: &transmission.Honeycomb{},
+	})
+
+	ht := dc.transmission.(*transmission.Honeycomb)
+	assert.Equal(t, transmission.DefaultBatchTimeout, ht.BatchTimeout)
+	assert.Equal(t, uint(transmission.DefaultMaxBatchSize), ht.MaxBatchSize)
+	assert.Equal(t, uint(transmission.DefaultMaxConcurrentBatches), ht.MaxConcurrentBatches)
+	assert.Equal(t, uint(transmission.DefaultPendingWorkCapacity), ht.PendingWorkCapacity)
+}
+
+func TestInitOverrideEmptyTransmission(t *testing.T) {
+	// Verify that if the user passes an empty transmission, but specifies conf values, we'll supply those
+	Init(Config{
+		Transmission:         &transmission.Honeycomb{},
+		BlockOnResponse:      true,
+		BlockOnSend:          true,
+		SendFrequency:        time.Second * 99,
+		MaxBatchSize:         99,
+		MaxConcurrentBatches: 99,
+		PendingWorkCapacity:  99,
+	})
+
+	ht := dc.transmission.(*transmission.Honeycomb)
+	assert.Equal(t, time.Second*99, ht.BatchTimeout)
+	assert.Equal(t, uint(99), ht.MaxBatchSize)
+	assert.Equal(t, uint(99), ht.MaxConcurrentBatches)
+	assert.Equal(t, uint(99), ht.PendingWorkCapacity)
+	assert.Equal(t, true, ht.BlockOnResponse)
+	assert.Equal(t, true, ht.BlockOnSend)
+}
+
+func TestInitOverrideTransmission(t *testing.T) {
+	// Verify that if the user passes a transmission and specifies conf values, the transmission
+	// values take precedence.
+	Init(Config{
+		Transmission: &transmission.Honeycomb{
+			BlockOnResponse:      true,
+			BlockOnSend:          true,
+			BatchTimeout:         time.Second * 42,
+			MaxBatchSize:         42,
+			MaxConcurrentBatches: 42,
+			PendingWorkCapacity:  42,
+		},
+		BlockOnResponse:      false,
+		BlockOnSend:          false,
+		SendFrequency:        time.Second * 99,
+		MaxBatchSize:         99,
+		MaxConcurrentBatches: 99,
+		PendingWorkCapacity:  99,
+	})
+
+	ht := dc.transmission.(*transmission.Honeycomb)
+	assert.Equal(t, time.Second*42, ht.BatchTimeout)
+	assert.Equal(t, uint(42), ht.MaxBatchSize)
+	assert.Equal(t, uint(42), ht.MaxConcurrentBatches)
+	assert.Equal(t, uint(42), ht.PendingWorkCapacity)
+	assert.Equal(t, true, ht.BlockOnResponse)
+	assert.Equal(t, true, ht.BlockOnSend)
+}
+
 //
 //  Examples
 //
@@ -993,7 +1056,7 @@ func BenchmarkFlush(b *testing.B) {
 
 func BenchmarkEndToEnd(b *testing.B) {
 	// extra response values are ignored
-	server := startFakeServer(b, DefaultMaxBatchSize)
+	server := startFakeServer(b, transmission.DefaultMaxBatchSize)
 	defer server.Close()
 
 	hc, err := NewClient(ClientConfig{
