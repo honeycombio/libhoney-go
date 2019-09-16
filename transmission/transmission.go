@@ -572,12 +572,16 @@ func (r *pooledReader) Close() error {
 }
 
 // Instantiating a new encoder is expensive, so use a global one.
-// The docs say EncodeAll() is concurrency-safe.
+// EncodeAll() is concurrency-safe.
 var zstdEncoder *zstd.Encoder
 
 func init() {
 	var err error
-	zstdEncoder, err = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(2)))
+	zstdEncoder, err = zstd.NewWriter(
+		nil,
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(2)),
+		zstd.WithWindowSize(1<<16),
+	)
 	if err != nil {
 		panic(err)
 	}
