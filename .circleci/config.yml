@@ -64,3 +64,7 @@ workflows:
           goversion: "12"
           requires:
             - setup
+      - test_libhoney:
+          goversion: "13"
+          requires:
+            - setup
