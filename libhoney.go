@@ -762,8 +762,14 @@ func (e *Event) SendPresampled() (err error) {
 			e.client.logger.Printf("Send enqueued event: %+v", e)
 		}
 	}()
-	e.lock.RLock()
-	defer e.lock.RUnlock()
+
+	// Lock the sent bool before taking the event lock, to match the order in
+	// the Add methods.
+	e.sendLock.Lock()
+	defer e.sendLock.Unlock()
+
+	e.fieldHolder.lock.RLock()
+	defer e.fieldHolder.lock.RUnlock()
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
@@ -788,9 +794,7 @@ func (e *Event) SendPresampled() (err error) {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
 	}
 
-	// lock the sent bool and then mark the event as sent. No more changes!
-	e.sendLock.Lock()
-	defer e.sendLock.Unlock()
+	// Mark the event as sent, no more field changes will be applied.
 	e.sent = true
 
 	e.client.ensureTransmission()

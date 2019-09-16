@@ -579,7 +579,10 @@ func init() {
 	var err error
 	zstdEncoder, err = zstd.NewWriter(
 		nil,
+		// Compression level 2 gives a good balance of speed and compression.
 		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(2)),
+		// zstd allocates 2 * GOMAXPROCS * window size, so use a small window.
+		// Most honeycomb messages are smaller than this.
 		zstd.WithWindowSize(1<<16),
 	)
 	if err != nil {
