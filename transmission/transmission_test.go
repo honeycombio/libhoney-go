@@ -339,6 +339,19 @@ func TestTxSendSingle(t *testing.T) {
 		rsp = testGetResponse(t, b.responses)
 		testEquals(t, rsp.Err, errors.New("Got HTTP error code but couldn't read response body: mystery read error!"))
 
+		// Some error statuses may come back with no body at all, so we should
+		// attach our own error.
+		frt.resp = &http.Response{
+			StatusCode: 504,
+			Body:       ioutil.NopCloser(bytes.NewReader([]byte{})),
+		}
+		frt.respErr = nil
+		b.batches = nil
+		b.Add(e)
+		go b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testEquals(t, rsp.Err, errors.New("got unexpected HTTP status 504: Gateway Timeout"))
+
 		// test blocking response path, no error
 		b.responses <- placeholder
 		reset(b, frt, 200, `[{"status":202}]`, nil)
