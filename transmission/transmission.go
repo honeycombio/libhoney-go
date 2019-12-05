@@ -389,17 +389,26 @@ func (b *batchAgg) fireBatch(events []*Event) {
 			body, err = ioutil.ReadAll(resp.Body)
 		}
 		if err != nil {
-			b.enqueueErrResponses(fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
-				events, dur/time.Duration(numEncoded))
+			b.enqueueErrResponses(
+				fmt.Errorf("Got HTTP error code but couldn't read response body: %v", err),
+				events,
+				dur/time.Duration(numEncoded),
+			)
 			return
 		}
 		for _, ev := range events {
+			err := fmt.Errorf(
+				"got unexpected HTTP status %d: %s",
+				resp.StatusCode,
+				http.StatusText(resp.StatusCode),
+			)
 			if ev != nil {
 				b.enqueueResponse(Response{
 					StatusCode: resp.StatusCode,
 					Body:       body,
 					Duration:   dur / time.Duration(numEncoded),
 					Metadata:   ev.Metadata,
+					Err:        err,
 				})
 			}
 		}
