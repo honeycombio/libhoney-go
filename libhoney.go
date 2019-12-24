@@ -192,7 +192,8 @@ func Init(conf Config) error {
 	}
 
 	// If both transmission and output are set, use transmission. If only one is
-	// set, use it. If neither is set, use the Honeycomb transmission
+	// set, use it. If the APIKey is empty, don't transmit. Otherwise, use the
+	// Honeycomb transmission
 	var t transmission.Sender
 	switch {
 	case conf.Transmission != nil:
@@ -203,6 +204,8 @@ func Init(conf Config) error {
 			blockOnResponse: conf.BlockOnResponse,
 			responses:       make(chan transmission.Response, 2*conf.PendingWorkCapacity),
 		}
+	case clientConf.APIKey == "":
+		t = &transmission.DiscardSender{}
 	default:
 		t = &transmission.Honeycomb{
 			MaxBatchSize:         conf.MaxBatchSize,
