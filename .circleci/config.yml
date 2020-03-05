@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  buildevents: honeycombio/buildevents@0.2.3
+  buildevents: honeycombio/buildevents@0.2.6
 
 executors:
   go:
@@ -9,9 +9,9 @@ executors:
       goversion:
         type: string
         default: "12"
-    working_directory: /go/src/github.com/honeycombio/libhoney-go
+    working_directory: /home/circleci/go/src/github.com/honeycombio/libhoney-go
     docker:
-      - image: circleci/golang:1.<< parameters.goversion >>
+      - image: cimg/go:1.<< parameters.goversion >>
 
 jobs:
   setup:
@@ -49,22 +49,14 @@ workflows:
           requires:
             - setup
       - test_libhoney:
-          goversion: "9"
-          requires:
-            - setup
-      - test_libhoney:
-          goversion: "10"
-          requires:
-            - setup
-      - test_libhoney:
-          goversion: "11"
-          requires:
-            - setup
-      - test_libhoney:
           goversion: "12"
           requires:
             - setup
       - test_libhoney:
           goversion: "13"
+          requires:
+            - setup
+      - test_libhoney:
+          goversion: "14"
           requires:
             - setup
