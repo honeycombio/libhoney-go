@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vmihailenco/msgpack"
+	msgpack "github.com/vmihailenco/msgpack/v4"
 )
 
 func TestEventMarshal(t *testing.T) {
