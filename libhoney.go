@@ -884,7 +884,6 @@ func (b *Builder) Clone() *Builder {
 		Dataset:    b.Dataset,
 		SampleRate: b.SampleRate,
 		APIHost:    b.APIHost,
-		dynFields:  make([]dynamicField, 0, len(b.dynFields)),
 		client:     b.client,
 	}
 	newB.data = make(map[string]interface{})
@@ -896,9 +895,8 @@ func (b *Builder) Clone() *Builder {
 	// copy dynamic metric generators
 	b.dynFieldsLock.RLock()
 	defer b.dynFieldsLock.RUnlock()
-	for _, dynFd := range b.dynFields {
-		newB.dynFields = append(newB.dynFields, dynFd)
-	}
+	newB.dynFields = make([]dynamicField, len(b.dynFields))
+	copy(newB.dynFields, b.dynFields)
 	return newB
 }
 
