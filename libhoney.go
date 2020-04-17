@@ -64,7 +64,7 @@ var (
 )
 
 // default is a mute statsd; intended to be overridden
-var sd, _ = statsd.New(statsd.Mute(true))
+var sd, _ = statsd.New(statsd.Mute(true), statsd.Prefix("libhoney"))
 
 // UserAgentAddition is a variable set at compile time via -ldflags to allow you
 // to augment the "User-Agent" header that libhoney sends along with each event.
