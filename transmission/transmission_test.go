@@ -20,7 +20,7 @@ import (
 	// Use a different zstd library from the implementation, for more
 	// convincing testing.
 	"github.com/DataDog/zstd"
-	"github.com/vmihailenco/msgpack/v4"
+	"gopkg.in/vmihailenco/msgpack.v4"
 )
 
 var (

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/vmihailenco/msgpack/v4"
+	"gopkg.in/vmihailenco/msgpack.v4"
 )
 
 type Event struct {
