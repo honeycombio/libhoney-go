@@ -14,12 +14,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	// Use a different zstd library from the implementation, for more
 	// convincing testing.
 	"github.com/DataDog/zstd"
+	"github.com/facebookgo/muster"
 	"github.com/vmihailenco/msgpack/v4"
 )
 
@@ -57,6 +59,7 @@ func TestHnyTxAdd(t *testing.T) {
 	hnyTx := &Honeycomb{
 		Logger:  &nullLogger{},
 		Metrics: &nullMetrics{},
+		muster:  new(muster.Client),
 	}
 	hnyTx.muster.Work = make(chan interface{}, 1)
 	hnyTx.responses = make(chan Response, 1)
@@ -817,6 +820,111 @@ func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
 
 		testEquals(t, len(b.overflowBatches), 0)
 		testEquals(t, trt.callCount, 1)
+	})
+}
+
+// fakeBatch is a muster.Batch implementation that let's us see what data gets
+// sent through a muster.Client. It also lets us delay the sending of the
+// batch through the block channel.
+type fakeBatch struct {
+	// block will prevent Fire from returning until block has been closed.
+	block <-chan struct{}
+	// receive from send to inspect the data that the muster.Client would have
+	// sent in this batch.
+	send  chan<- []interface{}
+	items []interface{}
+}
+
+func (fb *fakeBatch) Add(item interface{}) {
+	fb.items = append(fb.items, item)
+}
+
+func (fb *fakeBatch) Fire(notifier muster.Notifier) {
+	defer notifier.Done()
+	<-fb.block
+	fb.send <- fb.items
+}
+
+func TestHoneycombTransmissionFlush(t *testing.T) {
+	ev := &Event{
+		Metadata: "adder",
+	}
+
+	t.Run("Flush should send all data that has been Added", func(t *testing.T) {
+		// This test adds some data to the default Transmission implementation and
+		// flushes it. Then it checks to verify that the data that was added got
+		// sent.
+		w := new(Honeycomb)
+		w.MaxBatchSize = 1000
+		w.PendingWorkCapacity = 1
+		block := make(chan struct{})
+		close(block) // don't block the sending of this batch.
+		sendChan := make(chan []interface{})
+		b := &fakeBatch{
+			send:  sendChan,
+			block: block,
+		}
+
+		batchCount := int32(0)
+		w.batchMaker = func() muster.Batch {
+			t.Logf("creating batch %d", atomic.LoadInt32(&batchCount))
+			if atomic.CompareAndSwapInt32(&batchCount, 0, 1) {
+				return b
+			}
+			return &fakeBatch{}
+			// We want to be sure that the data we enqueue is flushed in the batch we
+			// expect. By not having s send channel on subsequent batches, we'll
+			// panic if we flush to other batches.
+		}
+
+		if err := w.Start(); err != nil {
+			t.Error("unable to start", err)
+		}
+		defer w.Stop()
+
+		w.Add(ev)
+		go func() {
+			if err := w.Flush(); err != nil {
+				t.Error("unable to flush", err)
+			}
+		}()
+
+		items := <-sendChan
+		testEquals(t, len(items), 1, "should be exactly one item")
+		testEquals(t, items[0], ev, "one item should be the event we added")
+	})
+
+	t.Run("Flush should not race or panic if Add is called while Flush is executing", func(t *testing.T) {
+		w := new(Honeycomb)
+		w.MaxBatchSize = 1000
+		block := make(chan struct{})
+		sendChan := make(chan []interface{}, 2)
+		b := &fakeBatch{
+			send:  sendChan,
+			block: block,
+		}
+
+		w.batchMaker = func() muster.Batch {
+			return b
+		}
+
+		if err := w.Start(); err != nil {
+			t.Error("unable to start", err)
+		}
+		defer func() {
+			<-block // reuse this block so that we don't race between adding and resource cleanup.
+			w.Stop()
+		}()
+		go func() {
+			w.Add(ev)
+			close(block)
+		}()
+		if err := w.Flush(); err != nil {
+			t.Error("unable to flush", err)
+		}
+		// This test doesn't assert anything. It just makes sure that you can call
+		// Add concurrently with Flush. Before we added locks, the race detector
+		// would detect a race here.
 	})
 }
 

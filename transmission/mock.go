@@ -9,6 +9,7 @@ import (
 type MockSender struct {
 	Started          int
 	Stopped          int
+	Flushed          int
 	EventsCalled     int
 	events           []*Event
 	responses        chan Response
@@ -29,6 +30,10 @@ func (m *MockSender) Start() error {
 }
 func (m *MockSender) Stop() error {
 	m.Stopped += 1
+	return nil
+}
+func (m *MockSender) Flush() error {
+	m.Flushed += 1
 	return nil
 }
 

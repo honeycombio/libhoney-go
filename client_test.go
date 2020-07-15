@@ -95,6 +95,7 @@ type dirtySender struct{}
 
 func (ds *dirtySender) Start() error                            { return nil }
 func (ds *dirtySender) Stop() error                             { return nil }
+func (ds *dirtySender) Flush() error                            { return nil }
 func (ds *dirtySender) TxResponses() chan transmission.Response { return nil }
 func (ds *dirtySender) SendResponse(transmission.Response) bool { return true }
 func (ds *dirtySender) Add(ev *transmission.Event) {

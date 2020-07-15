@@ -11,8 +11,13 @@ type Sender interface {
 	Start() error
 
 	// Stop flushes any pending queues and blocks until everything in flight has
-	// been sent
+	// been sent. Once called, you cannot call Add unless Start has subsequently
+	// been called.
 	Stop() error
+
+	// Flush flushes any pending queues and blocks until everything in flight has
+	// been sent.
+	Flush() error
 
 	// Responses returns a channel that will contain a single Response for each
 	// Event added. Note that they may not be in the same order as they came in
