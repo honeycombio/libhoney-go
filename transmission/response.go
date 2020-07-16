@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"gopkg.in/vmihailenco/msgpack.v4"
+	"github.com/vmihailenco/msgpack/v4"
 )
 
 // Response is a record of an event sent. It includes information about sending
