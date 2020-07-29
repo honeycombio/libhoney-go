@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
 )
 
 // WriterSender implements the Sender interface by marshalling events to JSON
@@ -44,11 +43,16 @@ func (w *WriterSender) Add(ev *Event) {
 	}
 
 	m, _ = json.Marshal(struct {
-		Data       map[string]interface{} `json:"data"`
-		SampleRate uint                   `json:"samplerate,omitempty"`
-		Timestamp  *time.Time             `json:"time,omitempty"`
-		Dataset    string                 `json:"dataset,omitempty"`
-	}{ev.Data, sampleRate, tPointer, ev.Dataset})
+		WireEvent
+		Dataset string `json:"dataset,omitempty"`
+	}{
+		WireEvent: WireEvent{
+			Data:       ev.Data,
+			SampleRate: sampleRate,
+			Timestamp:  tPointer,
+		},
+		Dataset: ev.Dataset,
+	})
 	m = append(m, '\n')
 
 	w.Lock()

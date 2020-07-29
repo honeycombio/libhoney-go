@@ -11,6 +11,12 @@ import (
 	"github.com/vmihailenco/msgpack/v4"
 )
 
+type WireEvent struct {
+	Data       MarshallableMap `json:"data" msgpack:"data"`
+	SampleRate uint            `json:"samplerate,omitempty" msgpack:"samplerate,omitempty"`
+	Timestamp  *time.Time      `json:"time,omitempty" msgpack:"time,omitempty"`
+}
+
 type Event struct {
 	// APIKey, if set, overrides whatever is found in Config
 	APIKey string
@@ -47,11 +53,11 @@ func (e *Event) MarshalJSON() ([]byte, error) {
 		sampleRate = 0
 	}
 
-	return json.Marshal(struct {
-		Data       marshallableMap `json:"data"`
-		SampleRate uint            `json:"samplerate,omitempty"`
-		Timestamp  *time.Time      `json:"time,omitempty"`
-	}{e.Data, sampleRate, tPointer})
+	return json.Marshal(WireEvent{
+		Data:       e.Data,
+		SampleRate: sampleRate,
+		Timestamp:  tPointer,
+	})
 }
 
 func (e *Event) MarshalMsgpack() (byts []byte, err error) {
@@ -74,17 +80,17 @@ func (e *Event) MarshalMsgpack() (byts []byte, err error) {
 	}()
 
 	var buf bytes.Buffer
-	err = msgpack.NewEncoder(&buf).UseJSONTag(true).Encode(struct {
-		Data       map[string]interface{} `msgpack:"data"`
-		SampleRate uint                   `msgpack:"samplerate,omitempty"`
-		Timestamp  *time.Time             `msgpack:"time,omitempty"`
-	}{e.Data, sampleRate, tPointer})
+	err = msgpack.NewEncoder(&buf).UseJSONTag(true).Encode(WireEvent{
+		Data:       e.Data,
+		SampleRate: sampleRate,
+		Timestamp:  tPointer,
+	})
 	return buf.Bytes(), err
 }
 
-type marshallableMap map[string]interface{}
+type MarshallableMap map[string]interface{}
 
-func (m marshallableMap) MarshalJSON() ([]byte, error) {
+func (m MarshallableMap) MarshalJSON() ([]byte, error) {
 	keys := make([]string, len(m))
 	i := 0
 	for k := range m {
