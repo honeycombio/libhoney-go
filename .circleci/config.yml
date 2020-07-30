@@ -44,6 +44,31 @@ jobs:
                 field_value: << parameters.goversion >>
 
 workflows:
+  nightly:
+    triggers:
+      - schedule:
+          cron: "0 0 * * *"
+          filters:
+            branches:
+              only:
+                - main
+    jobs:
+      - setup
+      - watch:
+          requires:
+            - setup
+      - test_libhoney:
+          goversion: "12"
+          requires:
+            - setup
+      - test_libhoney:
+          goversion: "13"
+          requires:
+            - setup
+      - test_libhoney:
+          goversion: "14"
+          requires:
+            - setup
   build_libhoney:
     jobs:
       - setup
