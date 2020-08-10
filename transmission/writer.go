@@ -30,6 +30,8 @@ func (w *WriterSender) Start() error {
 
 func (w *WriterSender) Stop() error { return nil }
 
+func (w *WriterSender) Flush() error { return nil }
+
 func (w *WriterSender) Add(ev *Event) {
 	var m []byte
 	tPointer := &(ev.Timestamp)

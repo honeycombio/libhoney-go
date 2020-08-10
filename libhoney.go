@@ -254,6 +254,13 @@ func (to *transitionOutput) Add(ev *transmission.Event) {
 	to.Output.Add(origEvent)
 }
 
+func (to *transitionOutput) Flush() error {
+	if err := to.Stop(); err != nil {
+		return err
+	}
+	return to.Stop()
+}
+
 func (to *transitionOutput) TxResponses() chan transmission.Response {
 	return to.responses
 }

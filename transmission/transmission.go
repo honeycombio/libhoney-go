@@ -68,11 +68,13 @@ type Honeycomb struct {
 	// set true to send events with msgpack encoding
 	EnableMsgpackEncoding bool
 
-	responses chan Response
+	batchMaker func() muster.Batch
+	responses  chan Response
 
 	Transport http.RoundTripper
 
-	muster muster.Client
+	muster     *muster.Client
+	musterLock sync.RWMutex
 
 	Logger  Logger
 	Metrics Metrics
@@ -84,29 +86,40 @@ func (h *Honeycomb) Start() error {
 	}
 	h.Logger.Printf("default transmission starting")
 	h.responses = make(chan Response, h.PendingWorkCapacity*2)
-	h.muster.MaxBatchSize = h.MaxBatchSize
-	h.muster.BatchTimeout = h.BatchTimeout
-	h.muster.MaxConcurrentBatches = h.MaxConcurrentBatches
-	h.muster.PendingWorkCapacity = h.PendingWorkCapacity
 	if h.Metrics == nil {
 		h.Metrics = &nullMetrics{}
 	}
-	h.muster.BatchMaker = func() muster.Batch {
-		return &batchAgg{
-			userAgentAddition: h.UserAgentAddition,
-			batches:           map[string][]*Event{},
-			httpClient: &http.Client{
-				Transport: h.Transport,
-				Timeout:   60 * time.Second,
-			},
-			blockOnResponse:       h.BlockOnResponse,
-			responses:             h.responses,
-			metrics:               h.Metrics,
-			disableCompression:    h.DisableGzipCompression || h.DisableCompression,
-			enableMsgpackEncoding: h.EnableMsgpackEncoding,
+	if h.batchMaker == nil {
+		h.batchMaker = func() muster.Batch {
+			return &batchAgg{
+				userAgentAddition: h.UserAgentAddition,
+				batches:           map[string][]*Event{},
+				httpClient: &http.Client{
+					Transport: h.Transport,
+					Timeout:   60 * time.Second,
+				},
+				blockOnResponse:       h.BlockOnResponse,
+				responses:             h.responses,
+				metrics:               h.Metrics,
+				disableCompression:    h.DisableGzipCompression || h.DisableCompression,
+				enableMsgpackEncoding: h.EnableMsgpackEncoding,
+			}
 		}
 	}
+
+	m := h.createMuster()
+	h.muster = m
 	return h.muster.Start()
+}
+
+func (h *Honeycomb) createMuster() *muster.Client {
+	m := new(muster.Client)
+	m.MaxBatchSize = h.MaxBatchSize
+	m.BatchTimeout = h.BatchTimeout
+	m.MaxConcurrentBatches = h.MaxConcurrentBatches
+	m.PendingWorkCapacity = h.PendingWorkCapacity
+	m.BatchMaker = h.batchMaker
+	return m
 }
 
 func (h *Honeycomb) Stop() error {
@@ -116,25 +129,58 @@ func (h *Honeycomb) Stop() error {
 	return err
 }
 
+func (h *Honeycomb) Flush() (err error) {
+	// There isn't a way to flush a muster.Client directly, so we have to stop
+	// the old one (which has a side-effect of flushing the data) and make a new
+	// one. We start the new one and swap it with the old one so that we minimize
+	// the time we hold the musterLock for.
+	m := h.muster
+	newMuster := h.createMuster()
+	err = newMuster.Start()
+	if err != nil {
+		return err
+	}
+	h.musterLock.Lock()
+	h.muster = newMuster
+	h.musterLock.Unlock()
+	return m.Stop()
+}
+
+// Add enqueues ev to be sent. If a Flush is in-progress, this will block until
+// it completes. Similarly, if BlockOnSend is set and the pending work is more
+// than the PendingWorkCapacity, this will block a Flush until more pending
+// work can be enqueued.
 func (h *Honeycomb) Add(ev *Event) {
+	if h.tryAdd(ev) {
+		h.Metrics.Increment("messages_queued")
+		return
+	}
+	h.Metrics.Increment("queue_overflow")
+	r := Response{
+		Err:      errors.New("queue overflow"),
+		Metadata: ev.Metadata,
+	}
+	h.Logger.Printf("got response code %d, error %s, and body %s",
+		r.StatusCode, r.Err, string(r.Body))
+	writeToResponse(h.responses, r, h.BlockOnResponse)
+}
+
+// tryAdd attempts to add ev to the underlying muster. It returns false if this
+// was unsucessful because the muster queue (muster.Work) is full.
+func (h *Honeycomb) tryAdd(ev *Event) bool {
+	h.musterLock.RLock()
+	defer h.musterLock.RUnlock()
 	h.Logger.Printf("adding event to transmission; queue length %d", len(h.muster.Work))
 	h.Metrics.Gauge("queue_length", len(h.muster.Work))
 	if h.BlockOnSend {
 		h.muster.Work <- ev
-		h.Metrics.Increment("messages_queued")
+		return true
 	} else {
 		select {
 		case h.muster.Work <- ev:
-			h.Metrics.Increment("messages_queued")
+			return true
 		default:
-			h.Metrics.Increment("queue_overflow")
-			r := Response{
-				Err:      errors.New("queue overflow"),
-				Metadata: ev.Metadata,
-			}
-			h.Logger.Printf("got response code %d, error %s, and body %s",
-				r.StatusCode, r.Err, string(r.Body))
-			writeToResponse(h.responses, r, h.BlockOnResponse)
+			return false
 		}
 	}
 }
