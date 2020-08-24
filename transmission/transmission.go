@@ -49,6 +49,8 @@ type Honeycomb struct {
 	MaxConcurrentBatches uint
 
 	// how many events to allow to pile up
+	// if not specified, then the work channel becomes blocking
+	// and attempting to add an event to the queue can fail
 	PendingWorkCapacity uint
 
 	// whether to block or drop events when the queue fills
