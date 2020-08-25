@@ -5,9 +5,10 @@ import (
 )
 
 // WriterOutput implements the Output interface and passes it along to the
-// transmission.WriterSender. It is deprecated and you should use the
-// transmission.WriterSender directly instead. It is provided here for backwards
-// compatibility and will be removed eventually.
+// transmission.WriterSender.
+//
+// Deprecated: Please use the transmission.WriterSender directly instead.
+// It is provided here for backwards compatibility and will be removed eventually.
 type WriterOutput struct {
 	transmission.WriterSender
 }
@@ -25,10 +26,10 @@ func (w *WriterOutput) Add(ev *Event) {
 	w.WriterSender.Add(transEv)
 }
 
-// DiscardWriter implements the Output interface and drops all events. It is
-// deprecated and you should use the transmission.DiscardSender directly
-// instead. It is provided here for backwards compatibility and will be removed
-// eventually.
+// DiscardWriter implements the Output interface and drops all events.
+//
+// Deprecated: Please use the transmission.DiscardSender directly instead.
+// It is provided here for backwards compatibility and will be removed eventually.
 type DiscardOutput struct {
 	WriterOutput
 }
