@@ -1223,6 +1223,6 @@ func TestFireBatchWithUnauthorizedResponse(t *testing.T) {
 		testEquals(t, len(b.overflowBatches[key]), 0)
 		testEquals(t, trt.callCount, 0)
 		testEquals(t, len(l.logs), 1)
-		testEquals(t, l.logs[:0], "APIKey 'written' was rejected. Please verify APIKey is correct.")
+		testEquals(t, l.logs[0], "APIKey 'written' was rejected. Please verify APIKey is correct.")
 	})
 }
