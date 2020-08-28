@@ -105,6 +105,7 @@ func (h *Honeycomb) Start() error {
 				metrics:               h.Metrics,
 				disableCompression:    h.DisableGzipCompression || h.DisableCompression,
 				enableMsgpackEncoding: h.EnableMsgpackEncoding,
+				logger:                h.Logger,
 			}
 		}
 	}
@@ -225,6 +226,8 @@ type batchAgg struct {
 	// allows manipulation of the value of "now" for testing
 	testNower   nower
 	testBlocker *sync.WaitGroup
+
+	logger Logger
 }
 
 // batch is a collection of events that will all be POSTed as one HTTP call
@@ -443,6 +446,10 @@ func (b *batchAgg) fireBatch(events []*Event) {
 				dur/time.Duration(numEncoded),
 			)
 			return
+		}
+		// log if write key was rejected because of invalid Write / API key
+		if resp.StatusCode == http.StatusUnauthorized {
+			b.logger.Printf("APIKey '%s' was rejected. Please verify APIKey is correct.", writeKey)
 		}
 		for _, ev := range events {
 			err := fmt.Errorf(

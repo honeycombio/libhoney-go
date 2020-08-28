@@ -1164,3 +1164,65 @@ func buildGzipReader(jsonEncoded []byte, compress bool) (io.Reader, bool) {
 	}
 	return bytes.NewReader(jsonEncoded), false
 }
+
+type unauthorizedRoundTripper struct {
+	callCount int
+}
+
+func (t *unauthorizedRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	t.callCount++
+
+	ioutil.ReadAll(r.Body)
+
+	return &http.Response{
+		StatusCode: 401,
+		Body:       ioutil.NopCloser(strings.NewReader(`[{"error":"unknown API key - check your credentials"}]`)),
+	}, nil
+}
+
+type testLogger struct {
+	logs []string
+}
+
+func (l *testLogger) Printf(msg string, args ...interface{}) {
+	l.logs = append(l.logs, fmt.Sprintf(msg, args...))
+}
+
+func TestFireBatchWithUnauthorizedResponse(t *testing.T) {
+	var doMsgpack bool
+	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+		trt := &unauthorizedRoundTripper{}
+		l := &testLogger{}
+		b := &batchAgg{
+			httpClient:            &http.Client{Transport: trt},
+			testNower:             &fakeNower{},
+			testBlocker:           &sync.WaitGroup{},
+			responses:             make(chan Response, 1),
+			metrics:               &nullMetrics{},
+			enableMsgpackEncoding: doMsgpack,
+			logger:                l,
+		}
+
+		b.Add(&Event{
+			Data:       map[string]interface{}{"all_good_data": "tast"},
+			SampleRate: 1,
+			APIHost:    "http://fakeHost:8080",
+			APIKey:     "written",
+			Dataset:    "ds1",
+			Metadata:   fmt.Sprintf("meta %d", 1),
+		})
+
+		key := "http://fakeHost:8080_written_ds1"
+
+		b.Fire(&testNotifier{})
+		b.testBlocker.Wait()
+		resp := testGetResponse(t, b.responses)
+		testEquals(t, resp.Err.Error(), "got unexpected HTTP status 401: Unauthorized")
+
+		testEquals(t, len(b.overflowBatches), 0)
+		testEquals(t, len(b.overflowBatches[key]), 0)
+		testEquals(t, trt.callCount, 1)
+		testEquals(t, len(l.logs), 1)
+		testEquals(t, l.logs[0], "APIKey 'written' was rejected. Please verify APIKey is correct.")
+	})
+}
