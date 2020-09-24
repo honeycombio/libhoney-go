@@ -1,5 +1,9 @@
 # libhoney Changelog
 
+## 1.14.1 2020-9-24
+
+- Add .editorconfig to help provide consistent IDE styling (#99)
+
 ## 1.14.0 2020-09-01
 
 - Documentation - document potential failures if pendingWorkCapacity not specified
