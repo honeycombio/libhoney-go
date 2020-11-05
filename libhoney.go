@@ -674,6 +674,11 @@ func (f *fieldHolder) Fields() map[string]interface{} {
 	return f.data
 }
 
+// returns a human friendly string representation of the fieldHolder
+func (f *fieldHolder) String() string {
+	return fmt.Sprint(f.data)
+}
+
 // mask the add functions on an event so that we can test the sent lock and noop
 // if the event has been sent.
 
@@ -824,6 +829,16 @@ func (e *Event) SendPresampled() (err error) {
 	}
 	e.client.transmission.Add(txEvent)
 	return nil
+}
+
+// returns a human friendly string representation of the event
+func (e *Event) String() string {
+	masked := e.WriteKey
+	if e.WriteKey != "" && len(e.WriteKey) > 4 {
+		len := len(e.WriteKey) - 4
+		masked = strings.Repeat("X", len) + e.WriteKey[len:]
+	}
+	return fmt.Sprintf("{WriteKey:%s Dataset:%s SampleRate:%d APIHost:%s Timestamp:%v fieldHolder:%+v sent:%t}", masked, e.Dataset, e.SampleRate, e.APIHost, e.Timestamp, e.fieldHolder.String(), e.sent)
 }
 
 // returns true if the sample should be dropped
