@@ -1,5 +1,9 @@
 # libhoney Changelog
 
+## 1.15.0 2020-11-10
+
+- Mask writekey when printing events (#103)
+
 ## 1.14.1 2020-9-24
 
 - Add .editorconfig to help provide consistent IDE styling (#99)
