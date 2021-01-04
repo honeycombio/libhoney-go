@@ -526,6 +526,32 @@ func TestBuilderStaticFields(t *testing.T) {
 	testEquals(t, ev4.data["floatF"], nil)
 }
 
+func TestBuilderDynFieldsCloneRace(t *testing.T) {
+	resetPackageVars()
+
+	b := NewBuilder()
+
+	const interations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < interations; i++ {
+			b.Clone()
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < interations; i++ {
+			b.AddDynamicField("dyn_field", nil)
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestOutputInterface(t *testing.T) {
 	resetPackageVars()
 	testTx := &MockOutput{}
