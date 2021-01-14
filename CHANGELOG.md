@@ -1,5 +1,16 @@
 # libhoney Changelog
 
+## 1.15.1 2021-01-14
+
+### Improvements
+
+- Fix data race on dynFields length in Builder.Clone (#72)
+
+### Maintenance
+
+- Update dependencies
+    - github.com/klauspost/compress from 1.11.3 to 1.11.4
+
 ## 1.15.0 2020-11-10
 
 - Mask writekey when printing events (#103)
