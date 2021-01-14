@@ -9,7 +9,7 @@
 ### Maintenance
 
 - Update dependencies
-    - github.com/klauspost/compress from 1.11.3 to 1.11.4
+    - github.com/klauspost/compress from 1.11.2 to 1.11.4 (#105, #106)
 
 ## 1.15.0 2020-11-10
 
