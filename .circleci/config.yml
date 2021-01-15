@@ -3,6 +3,20 @@ version: 2.1
 orbs:
   buildevents: honeycombio/buildevents@0.2.6
 
+# enable a job when tag created (tag create is ignored by default)
+filters_always: &filters_always
+  filters:
+    tags:
+      only: /.*/
+
+# restrict a job to only run when a version tag (vNNNN) is created
+filters_publish: &filters_publish
+  filters:
+    tags:
+      only: /^v[0-9].*/
+    branches:
+      ignore: /.*/
+
 matrix_goversions: &matrix_goversions
   matrix:
     parameters:
@@ -22,6 +36,9 @@ executors:
       - image: cimg/go:1.<< parameters.goversion >>
         environment:
           GO111MODULE: "on"
+  github:
+    docker:
+      - image: cibuilds/github:0.13.0
 
 jobs:
   setup:
@@ -51,6 +68,15 @@ jobs:
                 field_name: go_version
                 field_value: << parameters.goversion >>
 
+  publish_github:
+    executor: github
+    steps:
+      - attach_workspace:
+          at: ~/
+      - run:
+          name: "create draft release at GitHub"
+          command: ghr -draft -n ${CIRCLE_TAG} -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} ${CIRCLE_TAG}
+
 workflows:
   nightly:
     triggers:
@@ -72,11 +98,25 @@ workflows:
 
   build_libhoney:
     jobs:
-      - setup
+      - setup:
+          <<: *filters_always
       - watch:
+          <<: *filters_always
           requires:
             - setup
       - test:
+          <<: *filters_always
           <<: *matrix_goversions
           requires:
             - setup
+      - publish_github:
+          <<: *filters_publish
+          context: Honeycomb Secrets for Public Repos
+          filters:
+            tags:
+              only: /^v[0-9].*/
+            branches:
+              ignore: /.*/
+          requires:
+            - test
+
