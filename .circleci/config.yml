@@ -3,12 +3,20 @@ version: 2.1
 orbs:
   buildevents: honeycombio/buildevents@0.2.6
 
+matrix_goversions: &matrix_goversions
+  matrix:
+    parameters:
+      goversion: ["12", "13", "14"]
+
+# Default version of Go to use for Go steps
+default_goversion: &default_goversion "12"
+
 executors:
   go:
     parameters:
       goversion:
         type: string
-        default: "12"
+        default: *default_goversion
     working_directory: /home/circleci/go/src/github.com/honeycombio/libhoney-go
     docker:
       - image: cimg/go:1.<< parameters.goversion >>
@@ -25,11 +33,11 @@ jobs:
     steps:
       - buildevents/watch_build_and_finish
 
-  test_libhoney:
+  test:
     parameters:
       goversion:
         type: string
-        default: "12"
+        default: *default_goversion
     executor:
       name: go
       goversion: "<< parameters.goversion >>"
@@ -57,33 +65,18 @@ workflows:
       - watch:
           requires:
             - setup
-      - test_libhoney:
-          goversion: "12"
+      - test:
+          <<: *matrix_goversions
           requires:
             - setup
-      - test_libhoney:
-          goversion: "13"
-          requires:
-            - setup
-      - test_libhoney:
-          goversion: "14"
-          requires:
-            - setup
+
   build_libhoney:
     jobs:
       - setup
       - watch:
           requires:
             - setup
-      - test_libhoney:
-          goversion: "12"
-          requires:
-            - setup
-      - test_libhoney:
-          goversion: "13"
-          requires:
-            - setup
-      - test_libhoney:
-          goversion: "14"
+      - test:
+          <<: *matrix_goversions
           requires:
             - setup
