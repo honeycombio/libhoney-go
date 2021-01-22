@@ -1,6 +1,6 @@
 # libhoney Changelog
 
-## 1.14.1 2021-01-22
+## 1.15.1 2021-01-22
 
 NOTE: v1.15.1 may cause update warnings due to checksum error, please use v1.15.2 instead.
 
