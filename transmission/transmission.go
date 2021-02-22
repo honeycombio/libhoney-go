@@ -480,7 +480,11 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	if err != nil {
 		// if we can't decode the responses, just error out all of them
 		b.metrics.Increment("response_decode_errors")
-		b.enqueueErrResponses(err, events, dur/time.Duration(numEncoded))
+		b.enqueueErrResponses(fmt.Errorf(
+			"got OK HTTP response, but couldn't read response body: %v", err),
+			events,
+			dur/time.Duration(numEncoded),
+		)
 		return
 	}
 
