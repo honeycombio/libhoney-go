@@ -1,5 +1,15 @@
 # libhoney Changelog
 
+## 1.15.3 2021-06-02
+
+### Improvements
+
+- Add more context to batch response parsing error (#116)
+
+### Maintenance
+
+- Add go 1.15 & 1.16 to the testing matrix (#114, #119)
+
 ## 1.15.2 2021-01-22
 
 NOTE: v1.15.1 may cause update warnings due to checksum error, please use v1.15.2 instead.
