@@ -161,14 +161,13 @@ func (c *Client) Close() {
 // Generally, it is more efficient to rely on asyncronous batches than to
 // call Flush, but certain scenarios may require Flush if asynchronous sends
 // are not guaranteed to run (i.e. running in AWS Lambda)
-// Flush is not thread safe - use it only when you are sure that no other
-// parts of your program are calling Send
 func (c *Client) Flush() {
 	c.ensureLogger()
 	c.logger.Printf("flushing libhoney client")
 	if c.transmission != nil {
-		c.transmission.Stop()
-		c.transmission.Start()
+		if err := c.transmission.Flush(); err != nil {
+			c.logger.Printf("unable to flush: %v", err)
+		}
 	}
 }
 

@@ -3,9 +3,10 @@ package libhoney
 import "github.com/honeycombio/libhoney-go/transmission"
 
 // MockOutput implements the Output interface and passes it along to the
-// transmission.MockSender. It is deprecated and you should use the
-// transmission.MockSender directly instead. It is provided here for backwards
-// compatibility and will be removed eventually.
+// transmission.MockSender.
+//
+// Deprecated: Please use the transmission.MockSender directly instead.
+// It is provided here for backwards compatibility and will be removed eventually.
 type MockOutput struct {
 	transmission.MockSender
 }

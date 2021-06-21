@@ -526,6 +526,32 @@ func TestBuilderStaticFields(t *testing.T) {
 	testEquals(t, ev4.data["floatF"], nil)
 }
 
+func TestBuilderDynFieldsCloneRace(t *testing.T) {
+	resetPackageVars()
+
+	b := NewBuilder()
+
+	const interations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < interations; i++ {
+			b.Clone()
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < interations; i++ {
+			b.AddDynamicField("dyn_field", nil)
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestOutputInterface(t *testing.T) {
 	resetPackageVars()
 	testTx := &MockOutput{}
@@ -1046,4 +1072,68 @@ func startFakeServer(t testing.TB, assumeEventCount int) *httptest.Server {
 	}
 
 	return httptest.NewServer(http.HandlerFunc(handler))
+}
+
+func TestEventStringReturnsMaskedApiKey(t *testing.T) {
+	tests := []struct {
+		ev     *Event
+		expStr string
+	}{
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost:    "foo",
+				WriteKey:   "",
+				Dataset:    "baz",
+				SampleRate: 1,
+				client:     dc,
+			},
+			expStr: "{WriteKey: Dataset:baz SampleRate:1 APIHost:foo Timestamp:0001-01-01 00:00:00 +0000 UTC fieldHolder:map[a:1] sent:false}",
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost:    "foo",
+				WriteKey:   "woop",
+				Dataset:    "baz",
+				SampleRate: 1,
+				client:     dc,
+			},
+			expStr: "{WriteKey:woop Dataset:baz SampleRate:1 APIHost:foo Timestamp:0001-01-01 00:00:00 +0000 UTC fieldHolder:map[a:1] sent:false}",
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost:    "foo",
+				WriteKey:   "fibble",
+				Dataset:    "baz",
+				SampleRate: 1,
+				client:     dc,
+			},
+			expStr: "{WriteKey:XXbble Dataset:baz SampleRate:1 APIHost:foo Timestamp:0001-01-01 00:00:00 +0000 UTC fieldHolder:map[a:1] sent:false}",
+		},
+		{
+			ev: &Event{
+				fieldHolder: fieldHolder{
+					data: map[string]interface{}{"a": 1},
+				},
+				APIHost:    "foo",
+				WriteKey:   "fibblewibble",
+				Dataset:    "baz",
+				SampleRate: 1,
+				client:     dc,
+			},
+			expStr: "{WriteKey:XXXXXXXXbble Dataset:baz SampleRate:1 APIHost:foo Timestamp:0001-01-01 00:00:00 +0000 UTC fieldHolder:map[a:1] sent:false}",
+		},
+	}
+
+	for _, test := range tests {
+		testEquals(t, test.ev.String(), test.expStr)
+	}
 }
