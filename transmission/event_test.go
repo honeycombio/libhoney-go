@@ -42,9 +42,10 @@ func TestEventMarshal(t *testing.T) {
 	err = msgpack.NewDecoder(&buf).Decode(&decoded)
 	testOK(t, err)
 	localTime := e.Timestamp.Local()
+
 	testEquals(t, decoded, map[string]interface{}{
-		"time":       &localTime,
-		"samplerate": uint64(5),
+		"time":       localTime,
+		"samplerate": int8(5),
 		"data": map[string]interface{}{
 			"a": int64(1),
 			"b": float64(1.0),
@@ -55,7 +56,7 @@ func TestEventMarshal(t *testing.T) {
 				"f": int64(1),
 			},
 			"g": map[string]interface{}{
-				"g": int64(1),
+				"g": int8(1),
 			},
 		},
 	})
