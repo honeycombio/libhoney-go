@@ -1,5 +1,11 @@
 # libhoney Changelog
 
+## 1.15.4 2021-07-21
+
+### Maintenance
+
+- Upgrade msgpack from v4 to v5. (#127)
+
 ## 1.15.3 2021-06-02
 
 ### Improvements
