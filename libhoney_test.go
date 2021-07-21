@@ -277,14 +277,22 @@ func TestAddMap(t *testing.T) {
 		"d": []string{"d_a", "d_b"},
 		"e": r,
 	}
+	mInts := map[int64]interface{}{
+		1: "foo",
+		2: "bar",
+	}
 	ev := NewEvent()
 	err := ev.Add(mStr)
+	testOK(t, err)
+	err = ev.Add(mInts)
 	testOK(t, err)
 	testEquals(t, ev.data["a"], mStr["a"].(string))
 	testEquals(t, ev.data["b"], int(mStr["b"].(int)))
 	testEquals(t, ev.data["c"], float64(mStr["c"].(float64)))
 	testEquals(t, ev.data["d"], mStr["d"])
 	testEquals(t, ev.data["e"], r)
+	testEquals(t, ev.data["1"], "foo")
+	testEquals(t, ev.data["2"], "bar")
 
 	mInt := map[uint8]interface{}{
 		1: "valA",

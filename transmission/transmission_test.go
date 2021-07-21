@@ -22,7 +22,7 @@ import (
 	// convincing testing.
 	"github.com/DataDog/zstd"
 	"github.com/facebookgo/muster"
-	"github.com/vmihailenco/msgpack/v4"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 var (
@@ -232,7 +232,9 @@ func TestTxSendSingle(t *testing.T) {
 				},
 			}}
 			var buf bytes.Buffer
-			err := msgpack.NewEncoder(&buf).UseJSONTag(true).Encode(&v)
+			encoder := msgpack.NewEncoder(&buf)
+			encoder.SetCustomStructTag("json")
+			err := encoder.Encode(&v)
 			testOK(t, err)
 			_, err = g.Write(buf.Bytes())
 			testOK(t, err)

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/vmihailenco/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // response struct sent from API
@@ -59,7 +59,7 @@ func TestUnmarshalJSONResponseSingle(t *testing.T) {
 func TestUnmarshalMsgpackResponse(t *testing.T) {
 	buf := &bytes.Buffer{}
 	encoder := msgpack.NewEncoder(buf)
-	encoder.UseJSONTag(true)
+	encoder.SetCustomStructTag("json")
 	err := encoder.Encode(srcBatchResponseMultiple)
 	testOK(t, err)
 
@@ -76,7 +76,7 @@ func TestUnmarshalMsgpackResponse(t *testing.T) {
 func TestUnmarshalMsgpackResponseSingle(t *testing.T) {
 	buf := &bytes.Buffer{}
 	encoder := msgpack.NewEncoder(buf)
-	encoder.UseJSONTag(true)
+	encoder.SetCustomStructTag("json")
 	err := encoder.Encode(srcBatchResponseSingle)
 	testOK(t, err)
 

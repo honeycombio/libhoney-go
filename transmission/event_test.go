@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vmihailenco/msgpack/v4"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestEventMarshal(t *testing.T) {
@@ -23,19 +23,16 @@ func TestEventMarshal(t *testing.T) {
 		"g": map[string]interface{}{
 			"g": 1,
 		},
-		"h": map[int]int{
-			1: 1,
-		},
 	}
 	b, err := json.Marshal(e)
 	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo","e":1000,"f":{"f":1},"g":{"g":1},"h":{"1":1}}}`)
+	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo","e":1000,"f":{"f":1},"g":{"g":1}}}`)
 
 	e.Timestamp = time.Unix(1476309645, 0).UTC()
 	e.SampleRate = 5
 	b, err = json.Marshal(e)
 	testOK(t, err)
-	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo","e":1000,"f":{"f":1},"g":{"g":1},"h":{"1":1}},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
+	testEquals(t, string(b), `{"data":{"a":1,"b":1,"c":true,"d":"foo","e":1000,"f":{"f":1},"g":{"g":1}},"samplerate":5,"time":"2016-10-12T22:00:45Z"}`)
 
 	var buf bytes.Buffer
 	err = msgpack.NewEncoder(&buf).Encode(e)
@@ -45,9 +42,10 @@ func TestEventMarshal(t *testing.T) {
 	err = msgpack.NewDecoder(&buf).Decode(&decoded)
 	testOK(t, err)
 	localTime := e.Timestamp.Local()
+
 	testEquals(t, decoded, map[string]interface{}{
-		"time":       &localTime,
-		"samplerate": uint64(5),
+		"time":       localTime,
+		"samplerate": int8(5),
 		"data": map[string]interface{}{
 			"a": int64(1),
 			"b": float64(1.0),
@@ -58,10 +56,7 @@ func TestEventMarshal(t *testing.T) {
 				"f": int64(1),
 			},
 			"g": map[string]interface{}{
-				"g": int64(1),
-			},
-			"h": map[int64]int64{
-				1: 1,
+				"g": int8(1),
 			},
 		},
 	})

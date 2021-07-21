@@ -10,10 +10,8 @@ require (
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52
 	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect
 	github.com/facebookgo/subset v0.0.0-20200203212716-c811ad88dec4 // indirect
-	github.com/golang/protobuf v1.3.5 // indirect
 	github.com/klauspost/compress v1.12.3
 	github.com/stretchr/testify v1.6.1
-	github.com/vmihailenco/msgpack/v4 v4.3.12
-	golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e // indirect
+	github.com/vmihailenco/msgpack/v5 v5.2.0
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0
 )
