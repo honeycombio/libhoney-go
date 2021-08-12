@@ -1,5 +1,7 @@
+# libhoney
+
 [![OSS Lifecycle](https://img.shields.io/osslifecycle/honeycombio/libhoney-go)](https://github.com/honeycombio/home/blob/main/honeycomb-oss-lifecycle-and-practices.md)
-# libhoney [![CircleCI](https://circleci.com/gh/honeycombio/libhoney-go.svg?style=shield)](https://circleci.com/gh/honeycombio/libhoney-go)
+[![CircleCI](https://circleci.com/gh/honeycombio/libhoney-go.svg?style=shield)](https://circleci.com/gh/honeycombio/libhoney-go)
 
 Go library for sending events to [Honeycomb](https://honeycomb.io), a service for debugging your software in production.
 
