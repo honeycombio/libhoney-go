@@ -101,7 +101,14 @@ workflows:
       - setup:
           <<: *filters_always
       - watch:
-          <<: *filters_always
+          context: Honeycomb Secrets for Public Repos
+          filters:
+            tags:
+              only: /.*/
+            branches:
+              ignore:
+                - /pull\/.*/
+                - /dependabot\/.*/
           requires:
             - setup
       - test:
