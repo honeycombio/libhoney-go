@@ -137,13 +137,13 @@ func (h *Honeycomb) Flush() (err error) {
 	// the old one (which has a side-effect of flushing the data) and make a new
 	// one. We start the new one and swap it with the old one so that we minimize
 	// the time we hold the musterLock for.
-	m := h.muster
 	newMuster := h.createMuster()
 	err = newMuster.Start()
 	if err != nil {
 		return err
 	}
 	h.musterLock.Lock()
+	m := h.muster
 	h.muster = newMuster
 	h.musterLock.Unlock()
 	return m.Stop()

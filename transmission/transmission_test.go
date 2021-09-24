@@ -928,6 +928,37 @@ func TestHoneycombTransmissionFlush(t *testing.T) {
 		// Add concurrently with Flush. Before we added locks, the race detector
 		// would detect a race here.
 	})
+
+	t.Run("Flush should not race or panic if called from multiple goroutines", func(t *testing.T) {
+		w := new(Honeycomb)
+		w.MaxBatchSize = 1000
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		if err := w.Start(); err != nil {
+			t.Error("unable to start", err)
+		}
+		defer func() {
+			wg.Wait()
+			w.Stop()
+		}()
+		go func() {
+			defer wg.Done()
+			err := w.Flush()
+			if err != nil {
+				t.Error("unable to flush", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			err := w.Flush()
+			if err != nil {
+				t.Error("unable to flush", err)
+			}
+		}()
+		// This test makes sure that you can make concurrent calls to Flush.
+		// Race test used to panic here.
+	})
 }
 
 func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
