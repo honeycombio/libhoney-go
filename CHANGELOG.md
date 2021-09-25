@@ -1,5 +1,21 @@
 # libhoney Changelog
 
+## 1.15.5 2021-09-27
+
+### Fixed
+
+- fix race condition on Honeycomb.Flush() (#140) | [@bfreis](https://github.com/bfreis)
+
+### Maintenance
+
+- Change maintenance badge to maintained (#138)
+- Adds Stalebot (#141)
+- Add issue and PR templates (#136)
+- Add OSS lifecycle badge (#135)
+- Add community health files (#134)
+- Bump github.com/klauspost/compress from 1.12.3 to 1.13.5 (#130, #137)
+- Bump github.com/vmihailenco/msgpack/v5 from 5.2.0 to 5.3.4 (#133)
+
 ## 1.15.4 2021-07-21
 
 ### Maintenance
