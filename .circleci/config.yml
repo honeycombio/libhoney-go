@@ -88,9 +88,6 @@ workflows:
                 - main
     jobs:
       - setup
-      - watch:
-          requires:
-            - setup
       - test:
           <<: *matrix_goversions
           requires:
