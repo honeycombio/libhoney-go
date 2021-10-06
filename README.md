@@ -10,6 +10,10 @@ Go library for sending events to [Honeycomb](https://honeycomb.io), a service fo
 
 For tracing support and automatic instrumentation of Gorilla, `httprouter`, `sqlx`, and other common libraries, check out our [Beeline for Go](https://github.com/honeycombio/beeline-go).
 
+## Dependencies
+
+Golang 1.12+
+
 ## Contributions
 
 Features, bug fixes and other changes to libhoney are gladly accepted. Please
