@@ -61,6 +61,13 @@ jobs:
     steps:
       - buildevents/with_job_span:
           steps:
+            - when:
+                condition:
+                  equal: ["12", "<< parameters.goversion >>" ]
+                steps:
+                  - run:
+                      name: Update certs in old CI image
+                      command: sudo apt-get update && sudo apt-get install -y ca-certificates
             - checkout
             - run: go get -v -t -d ./...
             - run: go test -race -v ./...
