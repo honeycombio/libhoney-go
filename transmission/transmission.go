@@ -541,19 +541,20 @@ func (b *batchAgg) encodeBatchJSON(events []*Event) ([]byte, int) {
 			events[i] = nil
 			continue
 		}
-		// ok, we have valid JSON; add ourselves a comma and the next value
-		if !first {
-			buf.WriteByte(',')
-			bytesTotal++
-		}
-		first = false
-		bytesTotal += len(evByt)
 
+		bytesTotal += len(evByt)
 		// count for the trailing ]
 		if bytesTotal+1 > apiMaxBatchSize {
 			b.reenqueueEvents(events[i:])
 			break
 		}
+
+		// ok, we have valid JSON and it'll fit in this batch; add ourselves a comma and the next value
+		if !first {
+			buf.WriteByte(',')
+			bytesTotal++
+		}
+		first = false
 		buf.Write(evByt)
 		numEncoded++
 	}
