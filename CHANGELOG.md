@@ -1,5 +1,19 @@
 # libhoney Changelog
 
+## 1.15.6 2021-11-03
+
+### Fixed
+
+- Ensure valid JSON even when individual events in a batch can't be marshalled (#151)
+
+### Maintenance
+
+- empower apply-labels action to apply labels (#150)
+- add min go version to readme (#147)
+- update certs in old CI image (#148)
+- ci: remove buildevents from nightly (#144)
+- ci: secrets management (#142)
+
 ## 1.15.5 2021-09-27
 
 ### Fixed
