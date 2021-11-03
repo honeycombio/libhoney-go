@@ -520,12 +520,8 @@ func (b *batchAgg) encodeBatchJSON(events []*Event) ([]byte, int) {
 	bytesTotal := 1
 	// ok, we've got our array, let's populate it with JSON events
 	for i, ev := range events {
-		if !first {
-			buf.WriteByte(',')
-			bytesTotal++
-		}
-		first = false
 		evByt, err := json.Marshal(ev)
+		// check all our errors first in case we need to skip batching this event
 		if err != nil {
 			b.enqueueResponse(Response{
 				Err:      err,
@@ -545,13 +541,20 @@ func (b *batchAgg) encodeBatchJSON(events []*Event) ([]byte, int) {
 			events[i] = nil
 			continue
 		}
-		bytesTotal += len(evByt)
 
+		bytesTotal += len(evByt)
 		// count for the trailing ]
 		if bytesTotal+1 > apiMaxBatchSize {
 			b.reenqueueEvents(events[i:])
 			break
 		}
+
+		// ok, we have valid JSON and it'll fit in this batch; add ourselves a comma and the next value
+		if !first {
+			buf.WriteByte(',')
+			bytesTotal++
+		}
+		first = false
 		buf.Write(evByt)
 		numEncoded++
 	}

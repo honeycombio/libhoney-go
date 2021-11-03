@@ -689,12 +689,13 @@ func TestRenqueueEventsAfterOverflow(t *testing.T) {
 
 type testRoundTripper struct {
 	callCount int
+	body      []byte
 }
 
 func (t *testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	t.callCount++
 
-	ioutil.ReadAll(r.Body)
+	t.body, _ = ioutil.ReadAll(r.Body)
 
 	return &http.Response{
 		StatusCode: 200,
@@ -823,6 +824,56 @@ func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
 		testEquals(t, len(b.overflowBatches), 0)
 		testEquals(t, trt.callCount, 1)
 	})
+}
+
+// Ensure we can deal with batches with good events before and after a bad event
+// but only test the JSON path for now
+func TestFireBatchWithBrokenMiddleEvent(t *testing.T) {
+
+	runEvents := func(ev ...*Event) {
+		trt := &testRoundTripper{}
+		b := &batchAgg{
+			httpClient: &http.Client{Transport: trt},
+			testNower:  &fakeNower{},
+			// testBlocker:           &sync.WaitGroup{},
+			responses:             make(chan Response, 1),
+			metrics:               &nullMetrics{},
+			disableCompression:    true,
+			enableMsgpackEncoding: false,
+		}
+		for _, e := range ev {
+			b.Add(e)
+		}
+		b.Fire(&testNotifier{})
+		testEquals(t, string(trt.body), `[{"data":{"all_good_data":"yey"}},{"data":{"all_good_data":"yey"}}]`)
+	}
+
+	// add three events, a valid, a broken, and a valid.
+	goodEvent := &Event{
+		Data:       map[string]interface{}{"all_good_data": "yey"},
+		SampleRate: 1,
+		APIHost:    "http://fakeHost:8080",
+		APIKey:     "written",
+		Dataset:    "ds1",
+		Metadata:   fmt.Sprintf("meta %d", 0),
+	}
+	bigEvent := &Event{
+		Data:       map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)},
+		SampleRate: 1,
+		APIHost:    "http://fakeHost:8080",
+		APIKey:     "written",
+		Dataset:    "ds1",
+		Metadata:   fmt.Sprintf("meta %d", 1),
+	}
+
+	// whether the big event comes first, middle, or last, the JSON will be the same
+	runEvents(goodEvent, bigEvent, goodEvent)
+	runEvents(goodEvent, goodEvent, bigEvent)
+	runEvents(bigEvent, goodEvent, goodEvent)
+	runEvents(bigEvent, goodEvent, goodEvent, bigEvent, bigEvent)
+	runEvents(bigEvent, goodEvent, bigEvent, goodEvent, bigEvent)
+	runEvents(bigEvent, bigEvent, bigEvent, goodEvent, goodEvent)
+	runEvents(goodEvent, goodEvent)
 }
 
 // fakeBatch is a muster.Batch implementation that let's us see what data gets
