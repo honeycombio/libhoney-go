@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -918,12 +917,17 @@ func TestHoneycombTransmissionFlush(t *testing.T) {
 			block: block,
 		}
 
+		var mx sync.Mutex
 		batchCount := int32(0)
 		w.batchMaker = func() muster.Batch {
-			t.Logf("creating batch %d", atomic.LoadInt32(&batchCount))
-			if atomic.CompareAndSwapInt32(&batchCount, 0, 1) {
+			mx.Lock()
+			defer mx.Unlock()
+			t.Logf("creating batch %d", batchCount)
+			if batchCount == 0 {
+				batchCount++
 				return b
 			}
+			batchCount++
 			return &fakeBatch{}
 			// We want to be sure that the data we enqueue is flushed in the batch we
 			// expect. By not having s send channel on subsequent batches, we'll
