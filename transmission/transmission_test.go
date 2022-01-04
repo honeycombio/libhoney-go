@@ -124,7 +124,13 @@ type FakeRoundTripper struct {
 
 func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.req = r
+	if r.ContentLength == 0 {
+		panic("Expected a content length for all POST payloads.")
+	}
 	bodyBytes, _ := ioutil.ReadAll(r.Body)
+	if r.ContentLength != int64(len(bodyBytes)) {
+		panic("Content length did not match number of read bytes.")
+	}
 	f.reqBody = string(bodyBytes)
 
 	// Honeycomb servers response to msgpack requests with msgpack responses,
@@ -486,7 +492,13 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 		headerKeys := strings.Split(reqHeader, ",")
 		expectedURL, _ := url.Parse(fmt.Sprintf("%s/1/batch/%s", headerKeys[0], headerKeys[2]))
 		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
+			if r.ContentLength == 0 {
+				panic("Expected a content length for all POST payloads.")
+			}
 			bodyBytes, _ := ioutil.ReadAll(r.Body)
+			if r.ContentLength != int64(len(bodyBytes)) {
+				panic("Content length did not match number of read bytes.")
+			}
 			f.reqBody = string(bodyBytes)
 
 			// make sure body is legitimately compressed json
