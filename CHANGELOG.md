@@ -1,5 +1,18 @@
 # libhoney Changelog
 
+## 1.15.7 2022-01-04
+
+### Fixed
+
+- Don't crash on stream aborts, always add content length (#156) | [lizthegrey](https://github.com/lizthegrey)
+
+### Maintenance
+
+- Add re-triage workflow (#155) | [vreynolds](https://github.com/vreynolds)
+- Bump github.com/vmihailenco/msgpack/v5 from 5.3.4 to 5.3.5 (#149)
+- Bump github.com/DataDog/zstd from 1.4.8 to 1.5.0 (#153)
+- Bump github.com/klauspost/compress from 1.13.5 to 1.13.6 (#145)
+
 ## 1.15.6 2021-11-03
 
 ### Fixed
@@ -64,7 +77,7 @@ NOTE: v1.15.1 may cause update warnings due to checksum error, please use v1.15.
 ### Maintenance
 
 - Update dependencies
-    - github.com/klauspost/compress from 1.11.2 to 1.11.4 (#105, #106)
+- github.com/klauspost/compress from 1.11.2 to 1.11.4 (#105, #106)
 
 ## 1.15.0 2020-11-10
 
