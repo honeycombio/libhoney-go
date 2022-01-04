@@ -1085,7 +1085,7 @@ func TestHoneycombSenderAddingResponsesBlocking(t *testing.T) {
 
 }
 
-func TestBuildReqReaderNoGzip(t *testing.T) {
+func TestBuildReqReaderCompress(t *testing.T) {
 	payload := []byte(`{"hello": "world"}`)
 
 	// Ensure that if compress is false, we get expected values
@@ -1095,7 +1095,7 @@ func TestBuildReqReaderNoGzip(t *testing.T) {
 	testOK(t, err)
 	testEquals(t, readBuffer, payload)
 
-	// Ensure that if useGzip is true, we get compressed values
+	// Ensure that if compress is true, we get compressed values
 	reader, compressed = buildReqReader([]byte(`{"hello": "world"}`), true)
 	testEquals(t, compressed, true)
 	readBuffer, err = ioutil.ReadAll(reader)
@@ -1104,6 +1104,14 @@ func TestBuildReqReaderNoGzip(t *testing.T) {
 	decompressed, err := zstd.Decompress(nil, readBuffer)
 	testOK(t, err)
 	testEquals(t, decompressed, payload)
+
+	// Ensure that calling Close() on the compressed buffer, then
+	// attempting to Read() returns io.EOF but no crash.
+	// Needed to support https://go-review.googlesource.com/c/net/+/355491
+	reader, _ = buildReqReader([]byte(`{"hello": "world"}`), true)
+	reader.Close()
+	_, err = reader.Read(nil)
+	testEquals(t, err, io.EOF)
 }
 
 func TestMsgpackArrayEncoding(t *testing.T) {
