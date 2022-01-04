@@ -388,6 +388,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		var req *http.Request
 		reqBody, zipped := buildReqReader(encEvs, !b.disableCompression)
 		req, err = http.NewRequest("POST", url.String(), reqBody)
+		req.ContentLength = int64(reqBody.Len())
 		req.Header.Set("Content-Type", contentType)
 		if zipped {
 			req.Header.Set("Content-Encoding", "zstd")
@@ -630,14 +631,29 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 
 var zstdBufferPool sync.Pool
 
+type ReqReader interface {
+	io.ReadCloser
+	Len() int
+}
+
 type pooledReader struct {
-	*bytes.Reader
+	bytes.Reader
 	buf []byte
 }
 
+type SimpleReader struct {
+	bytes.Reader
+}
+
+func (r SimpleReader) Close() error {
+	return nil
+}
+
 func (r *pooledReader) Close() error {
+	// Ensure further attempts to read will return io.EOF
+	r.Reset(nil)
+	// Then reset and give up ownership of the buffer.
 	zstdBufferPool.Put(r.buf[:0])
-	r.Reader = nil
 	r.buf = nil
 	return nil
 }
@@ -661,9 +677,9 @@ func init() {
 	}
 }
 
-// buildReqReader returns an io.Reader and a boolean, indicating whether or not
-// the io.Reader is compressed.
-func buildReqReader(jsonEncoded []byte, compress bool) (io.ReadCloser, bool) {
+// buildReqReader returns an io.ReadCloser and a boolean, indicating whether or not
+// the underlying bytes.Reader is compressed.
+func buildReqReader(jsonEncoded []byte, compress bool) (ReqReader, bool) {
 	if compress {
 		var buf []byte
 		if found, ok := zstdBufferPool.Get().([]byte); ok {
@@ -671,12 +687,15 @@ func buildReqReader(jsonEncoded []byte, compress bool) (io.ReadCloser, bool) {
 		}
 
 		buf = zstdEncoder.EncodeAll(jsonEncoded, buf)
-		return &pooledReader{
-			Reader: bytes.NewReader(buf),
-			buf:    buf,
-		}, true
+		reader := pooledReader{
+			buf: buf,
+		}
+		reader.Reset(reader.buf)
+		return &reader, true
 	}
-	return ioutil.NopCloser(bytes.NewReader(jsonEncoded)), false
+	var reader SimpleReader
+	reader.Reset(jsonEncoded)
+	return &reader, false
 }
 
 // nower to make testing easier
