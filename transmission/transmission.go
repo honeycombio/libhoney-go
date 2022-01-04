@@ -388,6 +388,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		var req *http.Request
 		reqBody, zipped := buildReqReader(encEvs, !b.disableCompression)
 		if reader, ok := reqBody.(*pooledReader); ok {
+			// Pass the underlying bytes.Reader to http.Request so that
+			// GetBody and ContentLength fields are populated on Request.
+			// See https://cs.opensource.google/go/go/+/refs/tags/go1.17.5:src/net/http/request.go;l=898
 			req, err = http.NewRequest("POST", url.String(), &reader.Reader)
 		} else {
 			req, err = http.NewRequest("POST", url.String(), reqBody)
