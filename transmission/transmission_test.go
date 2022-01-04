@@ -124,6 +124,9 @@ type FakeRoundTripper struct {
 
 func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.req = r
+	if r.GetBody == nil {
+		panic("Retries must be possible. Set GetBody to fix this.")
+	}
 	if r.ContentLength == 0 {
 		panic("Expected a content length for all POST payloads.")
 	}
@@ -492,6 +495,9 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 		headerKeys := strings.Split(reqHeader, ",")
 		expectedURL, _ := url.Parse(fmt.Sprintf("%s/1/batch/%s", headerKeys[0], headerKeys[2]))
 		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
+			if r.GetBody == nil {
+				panic("Retries must be possible. Set GetBody to fix this.")
+			}
 			if r.ContentLength == 0 {
 				panic("Expected a content length for all POST payloads.")
 			}

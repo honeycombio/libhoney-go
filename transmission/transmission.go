@@ -387,8 +387,11 @@ func (b *batchAgg) fireBatch(events []*Event) {
 
 		var req *http.Request
 		reqBody, zipped := buildReqReader(encEvs, !b.disableCompression)
-		req, err = http.NewRequest("POST", url.String(), reqBody)
-		req.ContentLength = int64(reqBody.Len())
+		if reader, ok := reqBody.(*pooledReader); ok {
+			req, err = http.NewRequest("POST", url.String(), &reader.Reader)
+		} else {
+			req, err = http.NewRequest("POST", url.String(), reqBody)
+		}
 		req.Header.Set("Content-Type", contentType)
 		if zipped {
 			req.Header.Set("Content-Encoding", "zstd")
@@ -398,6 +401,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		req.Header.Add("X-Honeycomb-Team", writeKey)
 		// send off batch!
 		resp, err = b.httpClient.Do(req)
+		if reader, ok := reqBody.(*pooledReader); ok {
+			reader.Release()
+		}
 
 		if httpErr, ok := err.(httpError); ok && httpErr.Timeout() {
 			continue
@@ -631,25 +637,12 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 
 var zstdBufferPool sync.Pool
 
-type ReqReader interface {
-	io.ReadCloser
-	Len() int
-}
-
 type pooledReader struct {
 	bytes.Reader
 	buf []byte
 }
 
-type SimpleReader struct {
-	bytes.Reader
-}
-
-func (r SimpleReader) Close() error {
-	return nil
-}
-
-func (r *pooledReader) Close() error {
+func (r *pooledReader) Release() error {
 	// Ensure further attempts to read will return io.EOF
 	r.Reset(nil)
 	// Then reset and give up ownership of the buffer.
@@ -677,9 +670,9 @@ func init() {
 	}
 }
 
-// buildReqReader returns an io.ReadCloser and a boolean, indicating whether or not
+// buildReqReader returns an io.Reader and a boolean, indicating whether or not
 // the underlying bytes.Reader is compressed.
-func buildReqReader(jsonEncoded []byte, compress bool) (ReqReader, bool) {
+func buildReqReader(jsonEncoded []byte, compress bool) (io.Reader, bool) {
 	if compress {
 		var buf []byte
 		if found, ok := zstdBufferPool.Get().([]byte); ok {
@@ -693,9 +686,7 @@ func buildReqReader(jsonEncoded []byte, compress bool) (ReqReader, bool) {
 		reader.Reset(reader.buf)
 		return &reader, true
 	}
-	var reader SimpleReader
-	reader.Reset(jsonEncoded)
-	return &reader, false
+	return bytes.NewReader(jsonEncoded), false
 }
 
 // nower to make testing easier
