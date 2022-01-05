@@ -1,5 +1,9 @@
 # libhoney Changelog
 
+### Fixed
+
+- Pass bytes.Reader to http.Request, clean up pooledReader (#159) | | [lizthegrey](https://github.com/lizthegrey)
+
 ## 1.15.7 2022-01-04
 
 ### Fixed
