@@ -124,6 +124,9 @@ type FakeRoundTripper struct {
 
 func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.req = r
+	if r.GetBody == nil {
+		panic("Retries must be possible. Set GetBody to fix this.")
+	}
 	if r.ContentLength == 0 {
 		panic("Expected a content length for all POST payloads.")
 	}
@@ -492,6 +495,9 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 		headerKeys := strings.Split(reqHeader, ",")
 		expectedURL, _ := url.Parse(fmt.Sprintf("%s/1/batch/%s", headerKeys[0], headerKeys[2]))
 		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
+			if r.GetBody == nil {
+				panic("Retries must be possible. Set GetBody to fix this.")
+			}
 			if r.ContentLength == 0 {
 				panic("Expected a content length for all POST payloads.")
 			}
@@ -1121,7 +1127,7 @@ func TestBuildReqReaderCompress(t *testing.T) {
 	// attempting to Read() returns io.EOF but no crash.
 	// Needed to support https://go-review.googlesource.com/c/net/+/355491
 	reader, _ = buildReqReader([]byte(`{"hello": "world"}`), true)
-	reader.Close()
+	reader.(*pooledReader).Release()
 	_, err = reader.Read(nil)
 	testEquals(t, err, io.EOF)
 }
@@ -1235,7 +1241,6 @@ func BenchmarkCompression(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			reader, _ := buildReqReader(payload, false)
 			reader.Read(buf)
-			reader.Close()
 		}
 	})
 
@@ -1243,7 +1248,7 @@ func BenchmarkCompression(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			reader, _ := buildReqReader(payload, true)
 			reader.Read(buf)
-			reader.Close()
+			reader.(*pooledReader).Release()
 		}
 	})
 
