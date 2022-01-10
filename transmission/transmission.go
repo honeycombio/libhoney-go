@@ -173,8 +173,13 @@ func (h *Honeycomb) Add(ev *Event) {
 func (h *Honeycomb) tryAdd(ev *Event) bool {
 	h.musterLock.RLock()
 	defer h.musterLock.RUnlock()
-	h.Logger.Printf("adding event to transmission; queue length %d", len(h.muster.Work))
-	h.Metrics.Gauge("queue_length", len(h.muster.Work))
+
+	// Even though this queue is locked against changing h.Muster, the Work queue length
+	// could change due to actions on the worker side, so make sure we only measure it once.
+	qlen := len(h.muster.Work)
+	h.Logger.Printf("adding event to transmission; queue length %d", qlen)
+	h.Metrics.Gauge("queue_length", qlen)
+
 	if h.BlockOnSend {
 		h.muster.Work <- ev
 		return true
