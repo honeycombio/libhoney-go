@@ -942,10 +942,12 @@ func TestHoneycombTransmissionFlush(t *testing.T) {
 			if atomic.CompareAndSwapInt32(&batchCount, 0, 1) {
 				return b
 			}
-			return &fakeBatch{}
 			// We want to be sure that the data we enqueue is flushed in the batch we
-			// expect. By not having s send channel on subsequent batches, we'll
+			// expect. By having a closed send channel on subsequent batches, we'll
 			// panic if we flush to other batches.
+			sendChan2 := make(chan []interface{})
+			close(sendChan2)
+			return &fakeBatch{send: sendChan2}
 		}
 
 		if err := w.Start(); err != nil {
@@ -953,7 +955,12 @@ func TestHoneycombTransmissionFlush(t *testing.T) {
 		}
 		defer w.Stop()
 
+		// This call wants the Add to run first, and then make sure that the Flush doesn't lose the data.
+		// But on a fast machine, the Add might actually be interrupted by the Flush, and then correctly add the
+		// data to the *second* queue -- which is correct, but not what the test is looking for. So we'll
+		// give the Add a few msec to run first.
 		w.Add(ev)
+		time.Sleep(50 * time.Millisecond)
 		go func() {
 			if err := w.Flush(); err != nil {
 				t.Error("unable to flush", err)
