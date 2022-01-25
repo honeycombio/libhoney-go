@@ -1,6 +1,6 @@
 module github.com/honeycombio/libhoney-go
 
-go 1.14
+go 1.15
 
 require (
 	github.com/DataDog/zstd v1.5.0
