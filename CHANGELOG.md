@@ -4,10 +4,6 @@
 
 - Pass bytes.Reader to http.Request, clean up pooledReader (#159) | | [lizthegrey](https://github.com/lizthegrey)
 
-### Maintenance
-
-- Removes support for Go 1.13 and earlier (#164) | | [lizthegrey](https://github.com/lizthegrey)
-
 ## 1.15.7 2022-01-04
 
 ### Fixed
