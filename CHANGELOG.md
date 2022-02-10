@@ -1,5 +1,17 @@
 # libhoney Changelog
 
+## 2.0.0 2022-02-10
+
+### !!! Breaking Changes !!!
+
+Minimum Go version required is 1.14
+
+### Maintenance
+
+- Bump github.com/stretchr/testify from 1.6.1 to 1.7.0 (#111) | [dependabot](https://github.com/dependabot)
+- [go] drop support for go before 1.14 (#164) | [lizthegrey](https://github.com/lizthegrey)
+- Fix race condition in test and other test bugs (#162) | [@kentquirk](https://github.com/kentquirk)
+
 ## 1.15.8 2022-01-05
 
 ### Fixed
