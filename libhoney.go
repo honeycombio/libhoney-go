@@ -30,10 +30,11 @@ func init() {
 }
 
 const (
-	defaultSampleRate = 1
-	defaultAPIHost    = "https://api.honeycomb.io/"
-	defaultDataset    = "libhoney-go dataset"
-	version           = "2.0.0"
+	defaultSampleRate     = 1
+	defaultAPIHost        = "https://api.honeycomb.io/"
+	defaultClassicDataset = "libhoney-go dataset"
+	defaultDataset        = "unknown_service"
+	version               = "2.0.0"
 
 	// DefaultMaxBatchSize how many events to collect in a batch
 	DefaultMaxBatchSize = 50
@@ -146,6 +147,24 @@ type Config struct {
 	Logger Logger
 }
 
+func (c *Config) getDataset() string {
+	if c.isClassic() {
+		if strings.TrimSpace(c.Dataset) == "" {
+			return defaultClassicDataset
+		}
+		return c.Dataset
+	}
+	trimmedDataset := strings.TrimSpace(c.Dataset)
+	if trimmedDataset == "" {
+		return defaultDataset
+	}
+	return trimmedDataset
+}
+
+func (c *Config) isClassic() bool {
+	return c.APIKey == "" || len(c.APIKey) == 32
+}
+
 // Init is called on app initialization and passed a Config struct, which
 // configures default behavior. Use of package-level functions (e.g. SendNow())
 // require that WriteKey and Dataset are defined.
@@ -170,7 +189,7 @@ func Init(conf Config) error {
 	default:
 	}
 
-	clientConf.Dataset = conf.Dataset
+	clientConf.Dataset = conf.getDataset()
 	clientConf.SampleRate = conf.SampleRate
 	clientConf.APIHost = conf.APIHost
 
