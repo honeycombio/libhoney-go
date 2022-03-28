@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"reflect"
 	"sort"
@@ -156,7 +157,11 @@ func (c *Config) getDataset() string {
 	}
 	trimmedDataset := strings.TrimSpace(c.Dataset)
 	if trimmedDataset == "" {
+		fmt.Fprintln(os.Stderr, "WARN: Dataset is empty or whitespace, using default:", trimmedDataset)
 		return defaultDataset
+	}
+	if c.Dataset != trimmedDataset {
+		fmt.Fprintln(os.Stderr, "WARN: Dataset has unexpected whitespace, using trimmed version:", trimmedDataset)
 	}
 	return trimmedDataset
 }
