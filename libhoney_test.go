@@ -1145,3 +1145,45 @@ func TestEventStringReturnsMaskedApiKey(t *testing.T) {
 		testEquals(t, test.ev.String(), test.expStr)
 	}
 }
+
+func TestConfigVariationsForClassicNonClassic(t *testing.T) {
+	tests := []struct {
+		apikey          string
+		dataset         string
+		expectedDataset string
+	}{
+		{
+			apikey:          "",
+			dataset:         "",
+			expectedDataset: "libhoney-go dataset",
+		},
+		{
+			apikey:          "c1a551c000d68f9ed1e96432ac1a3380",
+			dataset:         "",
+			expectedDataset: "libhoney-go dataset",
+		},
+		{
+			apikey:          "c1a551c000d68f9ed1e96432ac1a3380",
+			dataset:         " my-service ",
+			expectedDataset: " my-service ",
+		},
+		{
+			apikey:          "d68f9ed1e96432ac1a3380",
+			dataset:         "",
+			expectedDataset: "unknown_dataset",
+		},
+		{
+			apikey:          "d68f9ed1e96432ac1a3380",
+			dataset:         " my-service ",
+			expectedDataset: "my-service",
+		},
+	}
+
+	for _, tc := range tests {
+		config := Config{
+			APIKey:  tc.apikey,
+			Dataset: tc.dataset,
+		}
+		testEquals(t, config.getDataset(), tc.expectedDataset)
+	}
+}
