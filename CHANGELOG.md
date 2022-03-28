@@ -1,5 +1,11 @@
 # libhoney Changelog
 
+## 2.1.0 2022-03-28
+
+### Enhancements
+
+- Update default dataset name for non-classic API keys (#170) | [@MikeGoldsmith](https://github.com/MikeGoldsmith)
+
 ## 2.0.0 2022-02-10
 
 ### !!! Breaking Changes !!!
