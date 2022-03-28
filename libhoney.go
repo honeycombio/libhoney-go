@@ -157,7 +157,7 @@ func (c *Config) getDataset() string {
 	}
 	trimmedDataset := strings.TrimSpace(c.Dataset)
 	if trimmedDataset == "" {
-		fmt.Fprintln(os.Stderr, "WARN: Dataset is empty or whitespace, using default:", trimmedDataset)
+		fmt.Fprintln(os.Stderr, "WARN: Dataset is empty or whitespace, using default:", defaultDataset)
 		return defaultDataset
 	}
 	if c.Dataset != trimmedDataset {
