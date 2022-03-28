@@ -1170,7 +1170,7 @@ func TestConfigVariationsForClassicNonClassic(t *testing.T) {
 		{
 			apikey:          "d68f9ed1e96432ac1a3380",
 			dataset:         "",
-			expectedDataset: "unknown_service",
+			expectedDataset: "unknown_dataset",
 		},
 		{
 			apikey:          "d68f9ed1e96432ac1a3380",
