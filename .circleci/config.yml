@@ -67,7 +67,9 @@ jobs:
             - buildevents/add_context:
                 field_name: go_version
                 field_value: << parameters.goversion >>
-            - run: go build examples/read_json_log.go
+            - run:
+                name: Build example
+                command: go build examples/read_json_log.go
 
   publish_github:
     executor: github
