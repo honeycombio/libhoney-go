@@ -69,7 +69,7 @@ jobs:
                 field_value: << parameters.goversion >>
             - run:
                 name: Build example
-                command: go build examples/read_json_log.go
+                command: go build examples/json_reader/read_json_log.go
 
   publish_github:
     executor: github
