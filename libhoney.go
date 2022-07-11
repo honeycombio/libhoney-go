@@ -317,10 +317,31 @@ func VerifyWriteKey(config Config) (team string, err error) {
 // rejected.
 func VerifyAPIKey(config Config) (team string, err error) {
 	dc.ensureLogger()
-	defer func() { dc.logger.Printf("verify write key got back %s with err=%s", team, err) }()
+	auth, err := getAuth(config)
+	dc.logger.Printf("verify write key got back %s with err=%s", auth.Team.Slug, err)
+	if err != nil {
+		return "", err
+	}
+	return auth.Team.Slug, nil
+}
+
+// GetTeamAndEnvironment calls out to the Honeycomb API to validate the API key
+// and retrieve the associated team and environment names.
+func GetTeamAndEnvironment(config Config) (team string, environment string, err error) {
+	dc.ensureLogger()
+	auth, err := getAuth(config)
+	dc.logger.Printf("verify API key got back %s with err=%s", auth.Team.Slug, err)
+	if err != nil {
+		return "", "", err
+	}
+	return auth.Team.Slug, auth.Environment.Slug, nil
+}
+
+func getAuth(config Config) (authInfo, error) {
+	auth := authInfo{}
 	if config.APIKey == "" {
 		if config.WriteKey == "" {
-			return team, errors.New("config.APIKey and config.WriteKey are both empty; can't verify empty key")
+			return auth, errors.New("config.APIKey and config.WriteKey are both empty; can't verify empty key")
 		}
 		config.APIKey = config.WriteKey
 	}
@@ -329,35 +350,46 @@ func VerifyAPIKey(config Config) (team string, err error) {
 	}
 	u, err := url.Parse(config.APIHost)
 	if err != nil {
-		return team, fmt.Errorf("Error parsing API URL: %s", err)
+		return auth, fmt.Errorf("Error parsing API URL: %s", err)
 	}
-	u.Path = path.Join(u.Path, "1", "team_slug")
+	u.Path = path.Join(u.Path, "1", "auth")
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return team, err
+		return auth, err
 	}
 	req.Header.Set("User-Agent", UserAgentAddition)
 	req.Header.Add("X-Honeycomb-Team", config.APIKey)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return team, err
+		return auth, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return team, errors.New("Write key provided is invalid")
+		return auth, errors.New("Write key provided is invalid")
 	}
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return team, fmt.Errorf(`Abnormal non-200 response verifying Honeycomb write key: %d
+		return auth, fmt.Errorf(`Abnormal non-200 response verify Honeycomb write/API key: %d
 Response body: %s`, resp.StatusCode, string(body))
 	}
-	ret := map[string]string{}
-	if err := json.Unmarshal(body, &ret); err != nil {
-		return team, err
+	if err := json.Unmarshal(body, &auth); err != nil {
+		return auth, fmt.Errorf("failed to JSON decode of AuthInfo response from Honeycomb API")
 	}
+	return auth, nil
+}
 
-	return ret["team_slug"], nil
+type teamInfo struct {
+	Slug string `json:"slug"`
+}
+
+type environmentInfo struct {
+	Slug string `json:"slug"`
+}
+
+type authInfo struct {
+	Team        teamInfo        `json:"team"`
+	Environment environmentInfo `json:"environment"`
 }
 
 // Deprecated: Response is deprecated; please use transmission.Response instead.
