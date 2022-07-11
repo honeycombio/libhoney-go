@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    ports:
+    - "8888:8888"
+    networks:
+    - main
+    depends_on:
+    - db
+    environment:
+      DB_HOST: db
+      HONEYCOMB_API_KEY:
+
+  db:
+    image: mysql
+    networks:
+    - main
+    volumes:
+    - example-golang-webapp:/var/lib/mysql
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes" # value is arbitrary
+      MYSQL_DATABASE: "shoutr"          # create DB shoutr automatically
+      ENV: "dev"
+
+volumes:
+  example-golang-webapp:
+
+networks:
+  main:
+    driver: bridge
