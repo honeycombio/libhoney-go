@@ -21,7 +21,6 @@ var (
 func init() {
 	hcConfig := libhoney.Config{
 		APIKey:  os.Getenv("HONEYCOMB_API_KEY"),
-		APIHost: "https://api-dogfood.honeycomb.io",
 		Dataset: hnyDatasetName,
 	}
 
