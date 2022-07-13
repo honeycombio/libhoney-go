@@ -1,5 +1,20 @@
 # libhoney Changelog
 
+## 2.2.0 2022-07-13
+
+### Enhancements
+
+- Add support to retrieve team and environment (#183) | [@MikeGoldsmith](https://github.com/MikeGoldsmith)
+
+### Maintenance
+
+- maint: add go 1.18 to CI (#172) | [@vreynolds](https://github.com/vreynolds)
+- Update examples (#184) | [@vreynolds](https://github.com/vreynolds)
+- Build example app during CI test phase (#179) | [@MikeGoldsmith](https://github.com/MikeGoldsmith)
+- Bump github.com/stretchr/testify from 1.7.0 to 1.8.0 (#174, #181) | [dependabot](https://github.com/dependabot)
+- Bump github.com/klauspost/compress from 1.13.6 to 1.15.7 (#175, #177, #180, #182) | [dependabot](https://github.com/dependabot)
+- Bump github.com/DataDog/zstd from 1.5.0 to 1.5.2 (#178) | [dependabot](https://github.com/dependabot)
+
 ## 2.1.0 2022-03-28
 
 ### Enhancements
