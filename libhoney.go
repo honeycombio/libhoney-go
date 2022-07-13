@@ -370,7 +370,7 @@ func getAuth(config Config) (authInfo, error) {
 	}
 	body, _ := ioutil.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return auth, fmt.Errorf(`Abnormal non-200 response verify Honeycomb write/API key: %d
+		return auth, fmt.Errorf(`Abnormal non-200 response verifying Honeycomb write/API key: %d
 Response body: %s`, resp.StatusCode, string(body))
 	}
 	if err := json.Unmarshal(body, &auth); err != nil {
