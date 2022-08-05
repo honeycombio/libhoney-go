@@ -33,9 +33,9 @@ func main() {
 	// basic initialization
 	libhConf := libhoney.Config{
 		// TODO change to use APIKey
-		WriteKey: honeyFakeAPIKey,
-		Dataset:  honeyDataset,
-		Logger:   &libhoney.DefaultLogger{},
+		APIKey:  honeyFakeAPIKey,
+		Dataset: honeyDataset,
+		Logger:  &libhoney.DefaultLogger{},
 	}
 	libhoney.Init(libhConf)
 
