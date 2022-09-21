@@ -170,14 +170,15 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f.resp, f.respErr
 }
 
-type OneTimeoutRountTripper struct {
+type TimingOutRoundTripper struct {
 	*FakeRoundTripper
-	doTimeout bool
+	// How many requests sent should time out?
+	numTimeouts int
 }
 
-func (f *OneTimeoutRountTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	if f.doTimeout {
-		f.doTimeout = false
+func (f *TimingOutRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	if f.numTimeouts > 0 {
+		f.numTimeouts--
 		return nil, &timeoutErr{}
 	}
 	return f.FakeRoundTripper.RoundTrip(r)
@@ -382,9 +383,9 @@ func TestTxSendSingle(t *testing.T) {
 
 		// test single http timeout
 		reset(b, frt, 200, `[{"status":202}]`, nil)
-		b.httpClient.Transport = &OneTimeoutRountTripper{
+		b.httpClient.Transport = &TimingOutRoundTripper{
 			FakeRoundTripper: frt,
-			doTimeout:        true,
+			numTimeouts:      1,
 		}
 		b.Add(e)
 		b.Fire(&testNotifier{})
