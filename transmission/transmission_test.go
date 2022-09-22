@@ -392,6 +392,18 @@ func TestTxSendSingle(t *testing.T) {
 		rsp = testGetResponse(t, b.responses)
 		testOK(t, rsp.Err)
 		testEquals(t, rsp.StatusCode, 202)
+
+		// test no more than one retry when first attempt times out
+		reset(b, frt, 200, `[{"status":202}]`, nil)
+		b.httpClient.Transport = &TimingOutRoundTripper{
+			FakeRoundTripper: frt,
+			numTimeouts:      2,
+		}
+		b.Add(e)
+		b.Fire(&testNotifier{})
+		rsp = testGetResponse(t, b.responses)
+		testErr(t, rsp.Err)
+		testEquals(t, rsp.Err.Error(), "Post \"http://fakeHost:8080/1/batch/ds1\": timeout")
 	})
 }
 
