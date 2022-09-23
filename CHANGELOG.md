@@ -1,5 +1,17 @@
 # libhoney Changelog
 
+## 1.17.0 2022-09-23
+
+### Enhancements
+
+- feat: adds a configurable event batch send timeout (#190) | [@robbkidd](https://github.com/robbkidd)
+
+### Maintenance
+
+- maint: add go 1.19 to CI (#189) | [@vreynolds](https://github.com/vreynolds)
+- docs: add wiki manual tracing example (#188) | [@vreynolds](https://github.com/vreynolds)
+- Bump github.com/klauspost/compress from 1.15.7 to 1.15.9 (#192) | [@robbkidd](https://github.com/robbkidd)
+
 ## 1.16.0 2022-07-13
 
 There were several v2 releases that were unusable because they were incomplete according to Go's semantic versioning strategy.
