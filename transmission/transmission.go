@@ -30,20 +30,43 @@ import (
 )
 
 const (
-	apiMaxBatchSize    int = 5000000 // 5MB
-	apiEventSizeMax    int = 100000  // 100KB
+	// Size limit for a serialized request body sent for a batch.
+	apiMaxBatchSize int = 5000000 // 5MB
+	// Size limit for a single serialized event within a batch.
+	apiEventSizeMax    int = 100000 // 100KB
 	maxOverflowBatches int = 10
+	// Default start-to-finish timeout for batch send HTTP requests.
+	defaultSendTimeout = time.Second * 60
 )
 
 // Version is the build version, set by libhoney
 var Version string
 
 type Honeycomb struct {
-	// how many events to collect into a batch before sending
+	// How many events to collect into a batch before sending. A
+	// batch could be sent before achieving this item limit if the
+	// BatchTimeout has elapsed since the last batch send. If set
+	// to zero, batches will only be sent upon reaching the
+	// BatchTimeout. It is an error for both this and
+	// the BatchTimeout to be zero.
+	// Default: 50 (from Config.MaxBatchSize)
 	MaxBatchSize uint
 
-	// how often to send off batches
+	// How often to send batches. Events queue up into a batch until
+	// this time has elapsed or the batch item limit is reached
+	// (MaxBatchSize), then the batch is sent to Honeycomb API.
+	// If set to zero, batches will only be sent upon reaching the
+	// MaxBatchSize item limit. It is an error for both this and
+	// the MaxBatchSize to be zero.
+	// Default: 100 milliseconds (from Config.SendFrequency)
 	BatchTimeout time.Duration
+
+	// The start-to-finish timeout for HTTP requests sending event
+	// batches to the Honeycomb API. Transmission will retry once
+	// when receiving a timeout, so total time spent attempting to
+	// send events could be twice this value.
+	// Default: 60 seconds.
+	BatchSendTimeout time.Duration
 
 	// how many batches can be inflight simultaneously
 	MaxConcurrentBatches uint
@@ -73,6 +96,10 @@ type Honeycomb struct {
 	batchMaker func() muster.Batch
 	responses  chan Response
 
+	// Transport defines the behavior of the lower layer transport details.
+	// It is used as the Transport value for the constructed HTTP client that
+	// sends batches of events.
+	// Default: http.DefaultTransport
 	Transport http.RoundTripper
 
 	muster     *muster.Client
@@ -91,6 +118,9 @@ func (h *Honeycomb) Start() error {
 	if h.Metrics == nil {
 		h.Metrics = &nullMetrics{}
 	}
+	if h.BatchSendTimeout == 0 {
+		h.BatchSendTimeout = defaultSendTimeout
+	}
 	if h.batchMaker == nil {
 		h.batchMaker = func() muster.Batch {
 			return &batchAgg{
@@ -98,7 +128,7 @@ func (h *Honeycomb) Start() error {
 				batches:           map[string][]*Event{},
 				httpClient: &http.Client{
 					Transport: h.Transport,
-					Timeout:   60 * time.Second,
+					Timeout:   h.BatchSendTimeout,
 				},
 				blockOnResponse:       h.BlockOnResponse,
 				responses:             h.responses,
