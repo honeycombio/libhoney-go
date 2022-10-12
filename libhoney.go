@@ -538,9 +538,10 @@ func Flush() {
 // Contrary to its name, SendNow does not block and send data
 // immediately, but only enqueues to be sent asynchronously.
 // It is equivalent to:
-//   ev := libhoney.NewEvent()
-//   ev.Add(data)
-//   ev.Send()
+//
+//	ev := libhoney.NewEvent()
+//	ev.Add(data)
+//	ev.Send()
 //
 // Deprecated: SendNow is deprecated and may be removed in a future major release.
 func SendNow(data interface{}) error {
@@ -844,8 +845,8 @@ func (e *Event) SendPresampled() (err error) {
 	e.sendLock.Lock()
 	defer e.sendLock.Unlock()
 
-	e.fieldHolder.lock.RLock()
-	defer e.fieldHolder.lock.RUnlock()
+	e.lock.RLock()
+	defer e.lock.RUnlock()
 	if len(e.data) == 0 {
 		return errors.New("No metrics added to event. Won't send empty event.")
 	}
@@ -922,9 +923,10 @@ func (b *Builder) AddDynamicField(name string, fn func() interface{}) error {
 // Contrary to its name, SendNow does not block and send data
 // immediately, but only enqueues to be sent asynchronously.
 // It is equivalent to:
-//   ev := builder.NewEvent()
-//   ev.Add(data)
-//   ev.Send()
+//
+//	ev := builder.NewEvent()
+//	ev.Add(data)
+//	ev.Send()
 //
 // Deprecated: SendNow is deprecated and may be removed in a future major release.
 func (b *Builder) SendNow(data interface{}) error {
@@ -947,18 +949,23 @@ func (b *Builder) NewEvent() *Event {
 		Timestamp:  time.Now(),
 		client:     b.client,
 	}
-	e.data = make(map[string]interface{})
-
+	// Set up locks
 	b.lock.RLock()
 	defer b.lock.RUnlock()
+	b.dynFieldsLock.RLock()
+	defer b.dynFieldsLock.RUnlock()
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	e.data = make(map[string]interface{}, len(b.data)+len(b.dynFields))
 	for k, v := range b.data {
 		e.data[k] = v
 	}
-	// create dynamic metrics
-	b.dynFieldsLock.RLock()
-	defer b.dynFieldsLock.RUnlock()
+
+	// create dynamic metrics.
 	for _, dynField := range b.dynFields {
-		e.AddField(dynField.name, dynField.fn())
+		// Perform the data mutation while locked.
+		e.data[dynField.name] = dynField.fn()
 	}
 	return e
 }
@@ -973,12 +980,14 @@ func (b *Builder) Clone() *Builder {
 		APIHost:    b.APIHost,
 		client:     b.client,
 	}
-	newB.data = make(map[string]interface{})
+
 	b.lock.RLock()
 	defer b.lock.RUnlock()
+	newB.data = make(map[string]interface{}, len(b.data))
 	for k, v := range b.data {
 		newB.data[k] = v
 	}
+
 	// copy dynamic metric generators
 	b.dynFieldsLock.RLock()
 	defer b.dynFieldsLock.RUnlock()
