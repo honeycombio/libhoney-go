@@ -817,6 +817,7 @@ func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
 	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
 		trt := &testRoundTripper{}
 		b := &batchAgg{
+			logger:                &nullLogger{},
 			httpClient:            &http.Client{Transport: trt},
 			testNower:             &fakeNower{},
 			testBlocker:           &sync.WaitGroup{},
@@ -864,6 +865,7 @@ func TestFireBatchWithBrokenMiddleEvent(t *testing.T) {
 	runEvents := func(ev ...*Event) {
 		trt := &testRoundTripper{}
 		b := &batchAgg{
+			logger:     &nullLogger{},
 			httpClient: &http.Client{Transport: trt},
 			testNower:  &fakeNower{},
 			// testBlocker:           &sync.WaitGroup{},

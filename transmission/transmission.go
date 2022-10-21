@@ -541,7 +541,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	for _, resp := range batchResponses {
 		resp.Duration = dur / time.Duration(numEncoded)
 		for eIdx < len(events) && events[eIdx] == nil {
-			fmt.Printf("incr, eIdx: %d, len(evs): %d\n", eIdx, len(events))
+			b.logger.Printf("incr, eIdx: %d, len(evs): %d", eIdx, len(events))
 			eIdx++
 		}
 		if eIdx == len(events) { // just in case
