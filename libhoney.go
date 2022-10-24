@@ -36,6 +36,7 @@ const (
 	defaultClassicDataset = "libhoney-go dataset"
 	defaultDataset        = "unknown_dataset"
 	version               = "1.17.1"
+	defaultStatsdPrefix   = "libhoney"
 
 	// DefaultMaxBatchSize how many events to collect in a batch
 	DefaultMaxBatchSize = 50
@@ -115,6 +116,12 @@ type Config struct {
 	// sent to Honeycomb. Defaults to False - if you don't read from the Responses
 	// channel it will be ok.
 	BlockOnResponse bool
+
+	// Statsd determines whether statsd data will be exported or not
+	Statsd bool
+
+	// StatsdPrefix determines the prefix given to statsd data
+	StatsdPrefix string
 
 	// Output is the deprecated method of manipulating how libhoney sends
 	// events.
@@ -216,6 +223,14 @@ func Init(conf Config) error {
 	}
 	if conf.PendingWorkCapacity == 0 {
 		conf.PendingWorkCapacity = DefaultPendingWorkCapacity
+	}
+	if conf.StatsdPrefix == "" {
+		conf.StatsdPrefix = defaultStatsdPrefix
+	}
+	if conf.Statsd == true {
+		sd, _ = statsd.New(statsd.Mute(false), statsd.Prefix(conf.StatsdPrefix))
+	} else {
+		sd, _ = statsd.New(statsd.Mute(true), statsd.Prefix(conf.StatsdPrefix))
 	}
 
 	// If both transmission and output are set, use transmission. If only one is
