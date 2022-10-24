@@ -229,8 +229,6 @@ func Init(conf Config) error {
 	}
 	if conf.Statsd == true {
 		sd, _ = statsd.New(statsd.Mute(false), statsd.Prefix(conf.StatsdPrefix))
-	} else {
-		sd, _ = statsd.New(statsd.Mute(true), statsd.Prefix(conf.StatsdPrefix))
 	}
 
 	// If both transmission and output are set, use transmission. If only one is
