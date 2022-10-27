@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -229,7 +230,7 @@ func TestTxSendSingle(t *testing.T) {
 		b.Fire(&testNotifier{})
 		expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
 		testEquals(t, frt.req.URL.String(), expectedURL)
-		versionedUserAgent := fmt.Sprintf("libhoney-go/%s", Version)
+		versionedUserAgent := fmt.Sprintf("libhoney-go/%s (%s/%s)", Version, runtime.GOOS, runtime.GOARCH)
 		testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
 		testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.APIKey)
 		buf := &bytes.Buffer{}
