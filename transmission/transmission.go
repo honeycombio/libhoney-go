@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -408,7 +409,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	url.Path = path.Join(url.Path, "/1/batch", dataset)
 
 	// sigh. dislike
-	userAgent := fmt.Sprintf("libhoney-go/%s", Version)
+	userAgent := fmt.Sprintf("libhoney-go/%s (%s/%s)", Version, runtime.GOOS, runtime.GOARCH)
 	if b.userAgentAddition != "" {
 		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
 	}
