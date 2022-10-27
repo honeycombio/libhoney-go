@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/facebookgo/muster"
+	"github.com/honeycombio/libhoney-go/version"
 	"github.com/klauspost/compress/zstd"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -40,8 +41,23 @@ const (
 	defaultSendTimeout = time.Second * 60
 )
 
-// Version is the build version, set by libhoney
-var Version string
+var (
+	// Libhoney's portion of the User-Agent header, e.g. "libhoney/1.2.3"
+	baseUserAgent = fmt.Sprintf("libhoney-go/%s", version.Version)
+	// Information about the runtime environment for inclusion in User-Agent
+	runtimeInfo = fmt.Sprintf("%s (%s/%s)", strings.Replace(runtime.Version(), "go", "go/", 1), runtime.GOOS, runtime.GOARCH)
+	// The default User-Agent when no additions have been given
+	defaultUserAgent = fmt.Sprintf("%s %s", baseUserAgent, runtimeInfo)
+)
+
+// Return a user-agent value including any additions made in the configuration
+func fmtUserAgent(addition string) string {
+	if addition != "" {
+		return fmt.Sprintf("%s %s %s", baseUserAgent, strings.TrimSpace(addition), runtimeInfo)
+	} else {
+		return defaultUserAgent
+	}
+}
 
 type Honeycomb struct {
 	// How many events to collect into a batch before sending. A
@@ -408,12 +424,6 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	// build the HTTP request
 	url.Path = path.Join(url.Path, "/1/batch", dataset)
 
-	// sigh. dislike
-	userAgent := fmt.Sprintf("libhoney-go/%s (%s/%s)", Version, runtime.GOOS, runtime.GOARCH)
-	if b.userAgentAddition != "" {
-		userAgent = fmt.Sprintf("%s %s", userAgent, strings.TrimSpace(b.userAgentAddition))
-	}
-
 	// One retry allowed for connection timeouts.
 	var resp *http.Response
 	for try := 0; try < 2; try++ {
@@ -436,7 +446,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 			req.Header.Set("Content-Encoding", "zstd")
 		}
 
-		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("User-Agent", fmtUserAgent(b.userAgentAddition))
 		req.Header.Add("X-Honeycomb-Team", writeKey)
 		// send off batch!
 		resp, err = b.httpClient.Do(req)

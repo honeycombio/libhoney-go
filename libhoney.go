@@ -27,7 +27,6 @@ import (
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-	transmission.Version = version
 }
 
 const (
@@ -35,7 +34,6 @@ const (
 	defaultAPIHost        = "https://api.honeycomb.io/"
 	defaultClassicDataset = "libhoney-go dataset"
 	defaultDataset        = "unknown_dataset"
-	version               = "1.17.1"
 
 	// DefaultMaxBatchSize how many events to collect in a batch
 	DefaultMaxBatchSize = 50

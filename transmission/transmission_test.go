@@ -11,7 +11,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +22,8 @@ import (
 	// convincing testing.
 	"github.com/DataDog/zstd"
 	"github.com/facebookgo/muster"
+	"github.com/honeycombio/libhoney-go/version"
+	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -202,7 +203,6 @@ func TestTxSendSingle(t *testing.T) {
 			metrics:               &nullMetrics{},
 			enableMsgpackEncoding: doMsgpack,
 		}
-		Version = "1.2.3"
 		reset := func(b *batchAgg, frt *FakeRoundTripper, statusCode int, body string, err error) {
 			if body == "" {
 				frt.resp = nil
@@ -230,8 +230,8 @@ func TestTxSendSingle(t *testing.T) {
 		b.Fire(&testNotifier{})
 		expectedURL := fmt.Sprintf("%s/1/batch/%s", e.APIHost, e.Dataset)
 		testEquals(t, frt.req.URL.String(), expectedURL)
-		versionedUserAgent := fmt.Sprintf("libhoney-go/%s (%s/%s)", Version, runtime.GOOS, runtime.GOARCH)
-		testEquals(t, frt.req.Header.Get("User-Agent"), versionedUserAgent)
+		versionedUserAgent := fmt.Sprintf("libhoney-go/%s %s", version.Version, runtimeInfo)
+		assert.Equal(t, versionedUserAgent, frt.req.Header.Get("User-Agent"))
 		testEquals(t, frt.req.Header.Get("X-Honeycomb-Team"), e.APIKey)
 		buf := &bytes.Buffer{}
 		g := zstd.NewWriter(buf)
@@ -270,11 +270,11 @@ func TestTxSendSingle(t *testing.T) {
 		// test UserAgentAddition
 		b.userAgentAddition = "  fancyApp/3 "
 		expectedUserAgentAddition := "fancyApp/3"
-		longUserAgent := fmt.Sprintf("%s %s", versionedUserAgent, expectedUserAgentAddition)
+		longUserAgent := fmt.Sprintf("libhoney-go/%s %s %s", version.Version, expectedUserAgentAddition, runtimeInfo)
 		reset(b, frt, 200, `[{"status":202}]`, nil)
 		b.Add(e)
 		b.Fire(&testNotifier{})
-		testEquals(t, frt.req.Header.Get("User-Agent"), longUserAgent)
+		assert.Equal(t, longUserAgent, frt.req.Header.Get("User-Agent"))
 		rsp = testGetResponse(t, b.responses)
 		testEquals(t, rsp.StatusCode, 202)
 		testOK(t, rsp.Err)
