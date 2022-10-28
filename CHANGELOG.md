@@ -1,5 +1,15 @@
 # libhoney Changelog
 
+## 1.18.0 2022-10-28
+
+### Enhancements
+
+- include Go version, GOOS, & GOARCH in user-agent (#207) | @robbkidd
+
+### Maintenance
+
+- Convert stray fmt.Printf into logger.Printf (#203) | @glenjamin
+
 ## 1.17.1 2022-10-19
 
 ### Fixed
