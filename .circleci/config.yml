@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  buildevents: honeycombio/buildevents@0.2.6
+  buildevents: honeycombio/buildevents@0.9.0
 
 # enable a job when tag created (tag create is ignored by default)
 filters_always: &filters_always
