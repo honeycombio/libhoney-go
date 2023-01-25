@@ -1,8 +1,5 @@
 version: 2.1
 
-orbs:
-  buildevents: honeycombio/buildevents@0.9.0
-
 # enable a job when tag created (tag create is ignored by default)
 filters_always: &filters_always
   filters:
@@ -41,15 +38,6 @@ executors:
       - image: cibuilds/github:0.13.0
 
 jobs:
-  setup:
-    executor: go
-    steps:
-      - buildevents/start_trace
-  watch:
-    executor: go
-    steps:
-      - buildevents/watch_build_and_finish
-
   test:
     parameters:
       goversion:
@@ -59,21 +47,16 @@ jobs:
       name: go
       goversion: "<< parameters.goversion >>"
     steps:
-      - buildevents/with_job_span:
-          steps:
-            - checkout
-            - run: make test
-            - store_test_results:
-                path: ./unit-tests.xml
-            - buildevents/add_context:
-                field_name: go_version
-                field_value: << parameters.goversion >>
-            - run:
-                name: Build JSON reader example
-                command: go build examples/json_reader/read_json_log.go
-            - run:
-                name: Build Wiki example
-                command: go build examples/wiki-manual-tracing/wiki.go
+      - checkout
+      - run: make test
+      - store_test_results:
+          path: ./unit-tests.xml
+      - run:
+          name: Build JSON reader example
+          command: go build examples/json_reader/read_json_log.go
+      - run:
+          name: Build Wiki example
+          command: go build examples/wiki-manual-tracing/wiki.go
 
   publish_github:
     executor: github
@@ -94,32 +77,14 @@ workflows:
               only:
                 - main
     jobs:
-      - setup
       - test:
           <<: *matrix_goversions
-          requires:
-            - setup
 
   build_libhoney:
     jobs:
-      - setup:
-          <<: *filters_always
-      - watch:
-          context: Honeycomb Secrets for Public Repos
-          filters:
-            tags:
-              only: /.*/
-            branches:
-              ignore:
-                - /pull\/.*/
-                - /dependabot\/.*/
-          requires:
-            - setup
       - test:
           <<: *filters_always
           <<: *matrix_goversions
-          requires:
-            - setup
       - publish_github:
           <<: *filters_publish
           context: Honeycomb Secrets for Public Repos
