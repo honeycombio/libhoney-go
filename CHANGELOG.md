@@ -2,6 +2,10 @@
 
 ## 1.19.0 2023-06-05
 
+### ⚠️ Breaking Changes ⚠️
+
+Minimum Go version required is 1.17
+
 ### Maintenance
 
 - Drop go 14, 15, 16 (#225) | @vreynolds
