@@ -1,10 +1,17 @@
 # libhoney Changelog
 
+## 1.19.0 2023-06-05
+
+### Maintenance
+
+- Drop go 14, 15, 16 (#225) | @vreynolds
+- Bump github.com/stretchr/testify from 1.8.0 to 1.8.2 (#218) | @dependabot
+
 ## 1.18.0 2022-10-28
 
 ### Enhancements
 
-- include Go version, GOOS, & GOARCH in user-agent (#207) | @robbkidd
+- Include Go version, GOOS, & GOARCH in user-agent (#207) | @robbkidd
 
 ### Maintenance
 
