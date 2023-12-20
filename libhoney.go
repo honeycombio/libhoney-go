@@ -623,6 +623,21 @@ func (f *fieldHolder) AddField(key string, val interface{}) {
 	f.data[key] = val
 }
 
+// AddFieldIfUnset adds an individual metric to the event or builder on which it is
+// called. It will only do so if the field has not already been set on the event.
+// This can be useful for providing "default" values of fields at a global level,
+// while still allowing individual events to provide an override.
+//
+// Note that if you add a value that cannot be serialized to JSON (eg a
+// function or channel), the event will fail to send.
+func (f *fieldHolder) AddFieldIfUnset(key string, val interface{}) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	if _, isset := f.data[key]; !isset {
+		f.data[key] = val
+	}
+}
+
 // Add adds a complex data type to the event or builder on which it's called.
 // For structs, it adds each exported field. For maps, it adds each key/value.
 // Add will error on all other types.

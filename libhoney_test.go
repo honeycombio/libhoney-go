@@ -148,6 +148,30 @@ func TestAddField(t *testing.T) {
 	testEquals(t, ev.data["boolVal"], true)
 }
 
+func TestAddFieldIfUnset(t *testing.T) {
+	resetPackageVars()
+	conf := Config{
+		WriteKey:   "aoeu",
+		Dataset:    "oeui",
+		SampleRate: 1,
+		APIHost:    "http://localhost:8081/",
+	}
+	Init(conf)
+	ev := NewEvent()
+	ev.AddFieldIfUnset("key", 1)
+	testEquals(t, ev.data["key"], 1)
+
+	ev.AddFieldIfUnset("key", 2)
+	testEquals(t, ev.data["key"], 1)
+
+	ev.AddField("key", 3)
+	// AddField will still overwrite
+	testEquals(t, ev.data["key"], 3)
+
+	ev.AddFieldIfUnset("key", 4)
+	testEquals(t, ev.data["key"], 3)
+}
+
 type Aich struct {
 	F1 string
 	F2 int
