@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -72,6 +73,8 @@ var sd, _ = statsd.New(statsd.Mute(true), statsd.Prefix("libhoney"))
 // contents will be appended to the User-Agent string, separated by a space. The
 // expected format is product-name/version, eg "myapp/1.0"
 var UserAgentAddition string
+
+var classicIngestKeyRegex = regexp.MustCompile(`^hc[a-z]ic_[a-z0-9]{58}$`)
 
 // Config specifies settings for initializing the library.
 type Config struct {
@@ -147,7 +150,7 @@ type Config struct {
 }
 
 func (c *Config) getDataset() string {
-	if c.isClassic() {
+	if c.IsClassic() {
 		if strings.TrimSpace(c.Dataset) == "" {
 			return defaultClassicDataset
 		}
@@ -164,8 +167,8 @@ func (c *Config) getDataset() string {
 	return trimmedDataset
 }
 
-func (c *Config) isClassic() bool {
-	return c.APIKey == "" || len(c.APIKey) == 32
+func (c *Config) IsClassic() bool {
+	return c.APIKey == "" || len(c.APIKey) == 32 || classicIngestKeyRegex.MatchString(c.APIKey)
 }
 
 // Init is called on app initialization and passed a Config struct, which
