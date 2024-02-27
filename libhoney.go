@@ -74,7 +74,7 @@ var sd, _ = statsd.New(statsd.Mute(true), statsd.Prefix("libhoney"))
 // expected format is product-name/version, eg "myapp/1.0"
 var UserAgentAddition string
 
-var classicKeyRegex = regexp.MustCompile(`^[a-z0-9]{32}$`)
+var classicKeyRegex = regexp.MustCompile(`^[a-zA-Z0-9]{32}$`)
 var classicIngestKeyRegex = regexp.MustCompile(`^hc[a-z]ic_[a-z0-9]{58}$`)
 
 // Config specifies settings for initializing the library.
