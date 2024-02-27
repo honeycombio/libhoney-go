@@ -1155,12 +1155,12 @@ func TestConfigVariationsForClassicNonClassic(t *testing.T) {
 		{
 			apikey:          "",
 			dataset:         "",
-			expectedDataset: "libhoney-go dataset",
+			expectedDataset: defaultClassicDataset,
 		},
 		{
 			apikey:          "c1a551c000d68f9ed1e96432ac1a3380",
 			dataset:         "",
-			expectedDataset: "libhoney-go dataset",
+			expectedDataset: defaultClassicDataset,
 		},
 		{
 			apikey:          "c1a551c000d68f9ed1e96432ac1a3380",
@@ -1170,11 +1170,31 @@ func TestConfigVariationsForClassicNonClassic(t *testing.T) {
 		{
 			apikey:          "d68f9ed1e96432ac1a3380",
 			dataset:         "",
-			expectedDataset: "unknown_dataset",
+			expectedDataset: defaultDataset,
 		},
 		{
 			apikey:          "d68f9ed1e96432ac1a3380",
 			dataset:         " my-service ",
+			expectedDataset: "my-service",
+		},
+		{
+			apikey:          "hcxik_1234567890123456789012345678901234567890123456789012345678",
+			dataset:         "",
+			expectedDataset: defaultDataset,
+		},
+		{
+			apikey:          "hcxik_1234567890123456789012345678901234567890123456789012345678",
+			dataset:         "my-service",
+			expectedDataset: "my-service",
+		},
+		{
+			apikey:          "hcxic_1234567890123456789012345678901234567890123456789012345678",
+			dataset:         "",
+			expectedDataset: defaultClassicDataset,
+		},
+		{
+			apikey:          "hcxic_1234567890123456789012345678901234567890123456789012345678",
+			dataset:         "my-service",
 			expectedDataset: "my-service",
 		},
 	}
@@ -1194,7 +1214,7 @@ func TestVerifyAPIKey(t *testing.T) {
 		APIKey              string
 		expectedEnvironment string
 	}{
-		{Name: "classic", APIKey: "lcYrFflRUR6rHbIifwqhfGRUR6rHbIic", expectedEnvironment: ""},
+		{Name: "classic", APIKey: "f2b9746602fd36049b222d3e8c6c48c9", expectedEnvironment: ""},
 		{Name: "non-classic", APIKey: "lcYrFflRUR6rHbIifwqhfG", expectedEnvironment: "test_env"},
 	}
 
@@ -1209,7 +1229,7 @@ func TestVerifyAPIKey(t *testing.T) {
 					assert.Equal(t, "/1/auth", r.URL.Path)
 					assert.Equal(t, []string{tc.APIKey}, r.Header["X-Honeycomb-Team"])
 
-					if config.isClassic() {
+					if config.IsClassic() {
 						w.Write([]byte(`{"team":{"slug":"test_team"}}`))
 					} else {
 						w.Write([]byte(`{"team":{"slug":"test_team"},"environment":{"slug":"test_env"}}`))
