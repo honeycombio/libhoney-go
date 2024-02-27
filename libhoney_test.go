@@ -1214,7 +1214,7 @@ func TestVerifyAPIKey(t *testing.T) {
 		APIKey              string
 		expectedEnvironment string
 	}{
-		{Name: "classic", APIKey: "lcYrFflRUR6rHbIifwqhfGRUR6rHbIic", expectedEnvironment: ""},
+		{Name: "classic", APIKey: "lcyrfflrur6rhbiifwqhfgrur6rhbiic", expectedEnvironment: ""},
 		{Name: "non-classic", APIKey: "lcYrFflRUR6rHbIifwqhfG", expectedEnvironment: "test_env"},
 	}
 
