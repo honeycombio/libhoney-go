@@ -1,6 +1,6 @@
 # libhoney Changelog
 
-## 1.21.0 2024-02-27
+## 1.21.0 2024-02-28
 
 ### Enhancements
 
