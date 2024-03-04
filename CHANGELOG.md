@@ -2,7 +2,7 @@
 
 ## 1.22.0 2024-03-04
 
-### Enhacements
+### Enhancements
 
 - feat: introduce IsClassicKey helper function (#239) | @jharley
 
