@@ -1358,3 +1358,44 @@ func TestFireBatchWithUnauthorizedResponse(t *testing.T) {
 		testEquals(t, l.logs[0], "APIKey 'written' was rejected. Please verify APIKey is correct.")
 	})
 }
+
+func TestBuildRequestPath(t *testing.T) {
+	testCases := []struct {
+		datasetName  string
+		expectedPath string
+	}{
+		{
+			datasetName:  "foobar",
+			expectedPath: "/1/batch/foobar",
+		},
+		{
+			datasetName:  "foo.bar",
+			expectedPath: "/1/batch/foo.bar",
+		},
+		{
+			datasetName:  "foo-bar",
+			expectedPath: "/1/batch/foo-bar",
+		},
+		{
+			datasetName:  "foo/bar",
+			expectedPath: "/1/batch/foo%2Fbar",
+		},
+		{
+			datasetName:  "foo(bar)",
+			expectedPath: "/1/batch/foo%28bar%29",
+		},
+		{
+			datasetName:  "foo[bar]",
+			expectedPath: "/1/batch/foo%5Bbar%5D",
+		},
+		{
+			datasetName:  "foo{bar}",
+			expectedPath: "/1/batch/foo%7Bbar%7D",
+		},
+	}
+
+	for _, tc := range testCases {
+		path := buildReqestPath("", tc.datasetName)
+		assert.Equal(t, tc.expectedPath, path)
+	}
+}
