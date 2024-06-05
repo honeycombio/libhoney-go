@@ -12,6 +12,8 @@
 - maint: Update minimum go version to 1.19 | @MikeGoldsmith
 - chore: Update dependabot reviewer to pipeline-team | @MikeGoldsmith
 - maint(deps): bump github.com/klauspost/compress from 1.16.6 to 1.17.8 | @dependabot
+- maint(deps): bump github.com/vmihailenco/msgpack/v5 from 5.3.5 to 5.4.1 (#248) | @dependabot
+- maint(deps): bump github.com/stretchr/testify from 1.8.4 to 1.9.0 (#247) | @dependabot
 
 ## 1.22.0 2024-03-04
 
