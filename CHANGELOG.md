@@ -1,5 +1,16 @@
 # libhoney Changelog
 
+## 1.23.0 2024-06-05
+
+- feat: URL encode dataset (#242) | @MikeGoldsmith
+
+### Maintenance
+
+- maint: add labels to release.yml for auto-generated grouping (#241) | @MikeGoldsmith
+- maint: Update minimum go version to 1.19 | @MikeGoldsmith
+- chore: Update dependabot reviewer to pipeline-team | @MikeGoldsmith
+- maint(deps): bump github.com/klauspost/compress from 1.16.6 to 1.17.8 | @dependabot
+
 ## 1.22.0 2024-03-04
 
 ### Enhancements
