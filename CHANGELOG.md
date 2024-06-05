@@ -2,6 +2,8 @@
 
 ## 1.23.0 2024-06-05
 
+### Enhancements
+
 - feat: URL encode dataset (#242) | @MikeGoldsmith
 
 ### Maintenance
