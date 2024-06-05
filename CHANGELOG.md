@@ -8,7 +8,7 @@
 
 ### Maintenance
 
-- maint: add labels to release.yml for auto-generated grouping (#241) | @MikeGoldsmith
+- maint: add labels to release.yml for auto-generated grouping (#241) | @JamieDanielson
 - maint: Update minimum go version to 1.19 | @MikeGoldsmith
 - chore: Update dependabot reviewer to pipeline-team | @MikeGoldsmith
 - maint(deps): bump github.com/klauspost/compress from 1.16.6 to 1.17.8 | @dependabot
