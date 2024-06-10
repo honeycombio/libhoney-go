@@ -1,6 +1,10 @@
 # libhoney Changelog
 
-## 1.23.0 2024-06-05
+## 1.23.0 2024-06-10
+
+### ⚠️ Breaking Changes ⚠️
+
+Minimum Go version required is 1.19
 
 ### Enhancements
 
