@@ -1395,7 +1395,7 @@ func TestBuildRequestPath(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		path := buildReqestPath("", tc.datasetName)
+		path := buildRequestURL("", tc.datasetName)
 		assert.Equal(t, tc.expectedPath, path)
 	}
 }

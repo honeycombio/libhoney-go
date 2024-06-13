@@ -423,7 +423,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// build the HTTP request URL
-	url := buildReqestPath(apiHost, dataset)
+	url := buildRequestURL(apiHost, dataset)
 
 	// One retry allowed for connection timeouts.
 	var resp *http.Response
@@ -744,6 +744,6 @@ type nower interface {
 	Now() time.Time
 }
 
-func buildReqestPath(apiHost, dataset string) string {
+func buildRequestURL(apiHost, dataset string) string {
 	return path.Join(apiHost, "/1/batch", url.PathEscape(dataset))
 }
