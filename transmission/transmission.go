@@ -19,7 +19,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"path"
 	"runtime"
 	"strings"
 	"sync"
@@ -399,8 +398,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		}
 	}
 
-	// make sure the api host is valid, if not, error out all the events
-	url, err := url.Parse(buildRequestURL(apiHost, dataset))
+	url, err := buildRequestURL(apiHost, dataset)
 	if err != nil {
 		end := time.Now().UTC()
 		if b.testNower != nil {
@@ -435,9 +433,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 			// Pass the underlying bytes.Reader to http.Request so that
 			// GetBody and ContentLength fields are populated on Request.
 			// See https://cs.opensource.google/go/go/+/refs/tags/go1.17.5:src/net/http/request.go;l=898
-			req, err = http.NewRequest("POST", url.String(), &reader.Reader)
+			req, err = http.NewRequest("POST", url, &reader.Reader)
 		} else {
-			req, err = http.NewRequest("POST", url.String(), reqBody)
+			req, err = http.NewRequest("POST", url, reqBody)
 		}
 		req.Header.Set("Content-Type", contentType)
 		if zipped {
@@ -741,6 +739,6 @@ type nower interface {
 	Now() time.Time
 }
 
-func buildRequestURL(apiHost, dataset string) string {
-	return path.Join(apiHost, "/1/batch", url.PathEscape(dataset))
+func buildRequestURL(apiHost, dataset string) (string, error) {
+	return url.JoinPath(apiHost, "/1/batch", url.PathEscape(dataset))
 }
