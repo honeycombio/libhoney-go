@@ -400,7 +400,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// make sure the api host is valid, if not, error out all the events
-	_, err := url.Parse(apiHost)
+	url, err := url.Parse(buildRequestURL(apiHost, dataset))
 	if err != nil {
 		end := time.Now().UTC()
 		if b.testNower != nil {
@@ -422,9 +422,6 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		return
 	}
 
-	// build the HTTP request URL
-	url := buildRequestURL(apiHost, dataset)
-
 	// One retry allowed for connection timeouts.
 	var resp *http.Response
 	for try := 0; try < 2; try++ {
@@ -438,9 +435,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 			// Pass the underlying bytes.Reader to http.Request so that
 			// GetBody and ContentLength fields are populated on Request.
 			// See https://cs.opensource.google/go/go/+/refs/tags/go1.17.5:src/net/http/request.go;l=898
-			req, err = http.NewRequest("POST", url, &reader.Reader)
+			req, err = http.NewRequest("POST", url.String(), &reader.Reader)
 		} else {
-			req, err = http.NewRequest("POST", url, reqBody)
+			req, err = http.NewRequest("POST", url.String(), reqBody)
 		}
 		req.Header.Set("Content-Type", contentType)
 		if zipped {
