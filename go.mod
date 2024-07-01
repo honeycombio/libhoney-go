@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/DataDog/zstd v1.5.5
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52
-	github.com/klauspost/compress v1.17.8
+	github.com/klauspost/compress v1.17.9
 	github.com/stretchr/testify v1.9.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0
