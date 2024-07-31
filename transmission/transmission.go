@@ -137,15 +137,23 @@ func (h *Honeycomb) Start() error {
 	if h.BatchSendTimeout == 0 {
 		h.BatchSendTimeout = defaultSendTimeout
 	}
+	if h.Transport == nil {
+		h.Transport = &http.Transport{
+			MaxIdleConns:        100, // default
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second, // default
+		}
+	}
+	httpClient := &http.Client{
+		Transport: h.Transport,
+		Timeout:   h.BatchSendTimeout,
+	}
 	if h.batchMaker == nil {
 		h.batchMaker = func() muster.Batch {
 			return &batchAgg{
-				userAgentAddition: h.UserAgentAddition,
-				batches:           map[string][]*Event{},
-				httpClient: &http.Client{
-					Transport: h.Transport,
-					Timeout:   h.BatchSendTimeout,
-				},
+				userAgentAddition:     h.UserAgentAddition,
+				batches:               map[string][]*Event{},
+				httpClient:            httpClient,
 				blockOnResponse:       h.BlockOnResponse,
 				responses:             h.responses,
 				metrics:               h.Metrics,
