@@ -3,7 +3,7 @@ module github.com/honeycombio/libhoney-go
 go 1.19
 
 require (
-	github.com/DataDog/zstd v1.5.5
+	github.com/DataDog/zstd v1.5.6
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52
 	github.com/klauspost/compress v1.17.9
 	github.com/stretchr/testify v1.9.0
