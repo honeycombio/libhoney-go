@@ -752,10 +752,10 @@ func buildRequestURL(apiHost, dataset string) (string, error) {
 func getExceedsMaxEventSizeExtraInfo(ev *Event) string {
 	var extraInfo string
 	if evName, ok := ev.Data["name"]; ok {
-		extraInfo = fmt.Sprintf(" Name: %v", evName)
+		extraInfo = fmt.Sprintf(" Name: \"%v\"", evName)
 	}
 	if evServiceName, ok := ev.Data["service.name"]; ok {
-		extraInfo = fmt.Sprintf("%s Service Name: %v", extraInfo, evServiceName)
+		extraInfo = fmt.Sprintf("%s Service Name: \"%v\"", extraInfo, evServiceName)
 	}
 	return extraInfo
 }
