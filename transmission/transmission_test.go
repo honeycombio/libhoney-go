@@ -771,45 +771,77 @@ func TestFireBatchLargeEventsSent(t *testing.T) {
 	})
 }
 
-// Ensure we handle events greater than the limit by enqueuing a response
+// Ensure we handle events greater than the limit by enqueuing a response and
+// confirm their error messages include name and service name if they exist
 func TestFireBatchWithTooLargeEvent(t *testing.T) {
-	var doMsgpack bool
-	withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
-		trt := &testRoundTripper{}
-		b := &batchAgg{
-			httpClient:            &http.Client{Transport: trt},
-			testNower:             &fakeNower{},
-			testBlocker:           &sync.WaitGroup{},
-			responses:             make(chan Response, 1),
-			metrics:               &nullMetrics{},
-			enableMsgpackEncoding: doMsgpack,
-		}
+	tsts := []struct {
+		desc        string
+		fhData      map[string]interface{}
+		expectedErr string
+	}{
+		{
+			desc:        "large event",
+			fhData:      map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)},
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event.",
+		}, {
+			desc:        "large event with a name",
+			fhData:      map[string]interface{}{"name": "namae", "reallyREALLYBigColumn": randomString(1024 * 1024)},
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Name: namae",
+		}, {
+			desc:        "large event with a service name",
+			fhData:      map[string]interface{}{"service.name": "servicio", "reallyREALLYBigColumn": randomString(1024 * 1024)},
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Service Name: servicio",
+		}, {
+			desc:        "large event with a name and service name",
+			fhData:      map[string]interface{}{"name": "nom", "service.name": "servicio", "reallyREALLYBigColumn": randomString(1024 * 1024)},
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Name: nom Service Name: servicio",
+		}, {
+			desc:        "large event with other fields",
+			fhData:      map[string]interface{}{"f1": "racing", "team": "lotus", "reallyREALLYBigColumn": randomString(1024 * 1024)},
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event.",
+		},
+	}
 
-		events := make([]*Event, 1)
-		for i := range events {
-			fhData := map[string]interface{}{"reallyREALLYBigColumn": randomString(1024 * 1024)}
-			events[i] = &Event{
-				Data:       fhData,
-				SampleRate: 4,
-				APIHost:    "http://fakeHost:8080",
-				APIKey:     "written",
-				Dataset:    "ds1",
-				Metadata:   fmt.Sprintf("meta %d", i),
+	for _, tt := range tsts {
+		var doMsgpack bool
+		withJSONAndMsgpack(t, &doMsgpack, func(t *testing.T) {
+			trt := &testRoundTripper{}
+			b := &batchAgg{
+				httpClient:            &http.Client{Transport: trt},
+				testNower:             &fakeNower{},
+				testBlocker:           &sync.WaitGroup{},
+				responses:             make(chan Response, 1),
+				metrics:               &nullMetrics{},
+				enableMsgpackEncoding: doMsgpack,
 			}
-			b.Add(events[i])
-		}
 
-		key := "http://fakeHost:8080_written_ds1"
+			events := make([]*Event, 1)
+			for i := range events {
+				fhData := tt.fhData
+				events[i] = &Event{
+					Data:       fhData,
+					SampleRate: 4,
+					APIHost:    "http://fakeHost:8080",
+					APIKey:     "written",
+					Dataset:    "ds1",
+					Metadata:   fmt.Sprintf("meta %d", i),
+				}
+				b.Add(events[i])
+			}
 
-		b.Fire(&testNotifier{})
-		b.testBlocker.Wait()
-		resp := testGetResponse(t, b.responses)
-		testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+			key := "http://fakeHost:8080_written_ds1"
 
-		testEquals(t, len(b.overflowBatches), 0)
-		testEquals(t, len(b.overflowBatches[key]), 0)
-		testEquals(t, trt.callCount, 0)
-	})
+			b.Fire(&testNotifier{})
+			b.testBlocker.Wait()
+			resp := testGetResponse(t, b.responses)
+			testEquals(t, resp.Err.Error(), tt.expectedErr, tt.desc)
+
+			testEquals(t, len(b.overflowBatches), 0, tt.desc)
+			testEquals(t, len(b.overflowBatches[key]), 0, tt.desc)
+			testEquals(t, trt.callCount, 0, tt.desc)
+
+		})
+	}
 }
 
 // Ensure we can deal with batches whose first event won't json encode
@@ -849,7 +881,7 @@ func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
 		b.testBlocker.Wait()
 		resp := testGetResponse(t, b.responses)
 		testEquals(t, resp.Metadata, "meta 0")
-		testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event")
+		testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event.")
 		resp = testGetResponse(t, b.responses)
 		testEquals(t, resp.Metadata, "meta 1")
 		testEquals(t, resp.StatusCode, 202)
