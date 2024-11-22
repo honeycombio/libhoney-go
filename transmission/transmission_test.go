@@ -786,15 +786,15 @@ func TestFireBatchWithTooLargeEvent(t *testing.T) {
 		}, {
 			desc:        "large event with a name",
 			fhData:      map[string]interface{}{"name": "namae", "reallyREALLYBigColumn": randomString(1024 * 1024)},
-			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Name: namae",
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Name: \"namae\"",
 		}, {
 			desc:        "large event with a service name",
 			fhData:      map[string]interface{}{"service.name": "servicio", "reallyREALLYBigColumn": randomString(1024 * 1024)},
-			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Service Name: servicio",
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Service Name: \"servicio\"",
 		}, {
 			desc:        "large event with a name and service name",
 			fhData:      map[string]interface{}{"name": "nom", "service.name": "servicio", "reallyREALLYBigColumn": randomString(1024 * 1024)},
-			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Name: nom Service Name: servicio",
+			expectedErr: "event exceeds max event size of 100000 bytes, API will not accept this event. Name: \"nom\" Service Name: \"servicio\"",
 		}, {
 			desc:        "large event with other fields",
 			fhData:      map[string]interface{}{"f1": "racing", "team": "lotus", "reallyREALLYBigColumn": randomString(1024 * 1024)},
