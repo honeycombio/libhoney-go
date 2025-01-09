@@ -2,8 +2,6 @@ module github.com/honeycombio/libhoney-go
 
 go 1.21
 
-toolchain go1.23.4
-
 require (
 	github.com/DataDog/zstd v1.5.6
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52
