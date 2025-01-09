@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -72,15 +71,15 @@ type Page struct {
 
 func (p *Page) save(ctx context.Context) error {
 	filename := p.Title + ".txt"
-	return ioutil.WriteFile(filename, p.Body, 0600)
+	return os.WriteFile(filename, p.Body, 0600)
 }
 
 func loadPage(ctx context.Context, title string) (*Page, error) {
 	filename := title + ".txt"
 	id := newID()
 	start := time.Now()
-	body, err := ioutil.ReadFile(filename)
-	sendSpan("ioutil.ReadFile", id, start, ctx, map[string]interface{}{"title": title, "bodylen": len(body), "error": err})
+	body, err := os.ReadFile(filename)
+	sendSpan("os.ReadFile", id, start, ctx, map[string]interface{}{"title": title, "bodylen": len(body), "error": err})
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +127,7 @@ func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
 	id := newID()
 	start := time.Now()
 	err := p.save(newContextWithParentID(r.Context(), id))
-	sendSpan("ioutil.WriteFile", id, start, r.Context(), map[string]interface{}{"title": title, "bodylen": len(body), "error": err})
+	sendSpan("os.WriteFile", id, start, r.Context(), map[string]interface{}{"title": title, "bodylen": len(body), "error": err})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

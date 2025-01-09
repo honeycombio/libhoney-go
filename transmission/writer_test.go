@@ -2,7 +2,7 @@ package transmission
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +77,7 @@ func TestWriterSenderAddingResponsesNonblocking(t *testing.T) {
 	// using the public SendRespanse method should add the response to the queue
 	// while honoring the block setting
 	w := &WriterSender{
-		W:                 ioutil.Discard,
+		W:                 io.Discard,
 		BlockOnResponses:  false,
 		ResponseQueueSize: 1,
 	}
@@ -123,7 +123,7 @@ func TestWriterSenderAddingResponsesBlocking(t *testing.T) {
 	// using the public SendRespanse method should add the response to the queue
 	// while honoring the block setting
 	w := &WriterSender{
-		W:                 ioutil.Discard,
+		W:                 io.Discard,
 		BlockOnResponses:  true,
 		ResponseQueueSize: 1,
 	}

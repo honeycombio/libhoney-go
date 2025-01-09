@@ -1,11 +1,11 @@
 module github.com/honeycombio/libhoney-go
 
-go 1.19
+go 1.21
 
 require (
 	github.com/DataDog/zstd v1.5.6
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52
-	github.com/klauspost/compress v1.17.9
+	github.com/klauspost/compress v1.17.11
 	github.com/stretchr/testify v1.10.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0

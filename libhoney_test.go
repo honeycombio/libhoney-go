@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -743,7 +743,7 @@ type testTransport struct {
 
 func (tr *testTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	tr.invoked = true
-	return &http.Response{Body: ioutil.NopCloser(bytes.NewReader(nil))}, nil
+	return &http.Response{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 }
 
 func TestSendTestTransport(t *testing.T) {
