@@ -16,11 +16,11 @@ type responseInBatch struct {
 
 var (
 	srcBatchResponseSingle = []responseInBatch{
-		responseInBatch{ErrorStr: "something bad happened", Status: 500},
+		{ErrorStr: "something bad happened", Status: 500},
 	}
 	srcBatchResponseMultiple = []responseInBatch{
-		responseInBatch{ErrorStr: "something bad happened", Status: 500},
-		responseInBatch{Status: 202},
+		{ErrorStr: "something bad happened", Status: 500},
+		{Status: 202},
 	}
 )
 

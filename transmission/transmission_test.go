@@ -66,7 +66,6 @@ func TestHnyTxAdd(t *testing.T) {
 	hnyTx.muster.Work = make(chan interface{}, 1)
 	hnyTx.responses = make(chan Response, 1)
 	hnyTx.responses <- placeholder
-	hnyTx.responses = hnyTx.responses
 
 	// default successful case
 	e := &Event{Metadata: "mmeetta"}
@@ -77,7 +76,7 @@ func TestHnyTxAdd(t *testing.T) {
 	testIsPlaceholderResponse(t, rsp, "work was simply queued; no response available yet")
 
 	// make the queue 0 length to force an overflow
-	hnyTx.muster.Work = make(chan interface{}, 0)
+	hnyTx.muster.Work = make(chan interface{})
 	hnyTx.Add(e)
 	rsp = testGetResponse(t, hnyTx.responses)
 	testErr(t, rsp.Err)
@@ -105,7 +104,7 @@ func TestHnyTxAdd(t *testing.T) {
 	// test blocking on response still gets an overflow down the channel
 	hnyTx.BlockOnSend = false
 	hnyTx.BlockOnResponse = true
-	hnyTx.muster.Work = make(chan interface{}, 0)
+	hnyTx.muster.Work = make(chan interface{})
 
 	hnyTx.responses <- placeholder
 	go hnyTx.Add(e)
@@ -132,7 +131,7 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.ContentLength == 0 {
 		panic("Expected a content length for all POST payloads.")
 	}
-	bodyBytes, _ := ioutil.ReadAll(r.Body)
+	bodyBytes, _ := io.ReadAll(r.Body)
 	if r.ContentLength != int64(len(bodyBytes)) {
 		panic("Content length did not match number of read bytes.")
 	}
@@ -496,7 +495,6 @@ type FancyFakeRoundTripper struct {
 	resp      *http.Response
 
 	// map of request apihost/writekey/dataset to intended response
-	respBody   string
 	respBodies map[string]string
 	respErr    error
 }
@@ -515,7 +513,7 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 			if r.ContentLength == 0 {
 				panic("Expected a content length for all POST payloads.")
 			}
-			bodyBytes, _ := ioutil.ReadAll(r.Body)
+			bodyBytes, _ := io.ReadAll(r.Body)
 			if r.ContentLength != int64(len(bodyBytes)) {
 				panic("Content length did not match number of read bytes.")
 			}
