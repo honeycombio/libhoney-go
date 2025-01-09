@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"sort"
@@ -160,7 +159,7 @@ func (f *FakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 				return nil, err
 			}
 
-			f.resp.Body = ioutil.NopCloser(&buf)
+			f.resp.Body = io.NopCloser(&buf)
 			if f.resp.Header == nil {
 				f.resp.Header = http.Header{}
 			}
@@ -208,7 +207,7 @@ func TestTxSendSingle(t *testing.T) {
 			} else {
 				frt.resp = &http.Response{
 					StatusCode: statusCode,
-					Body:       ioutil.NopCloser(strings.NewReader(body)),
+					Body:       io.NopCloser(strings.NewReader(body)),
 				}
 			}
 			frt.respErr = err
@@ -341,7 +340,7 @@ func TestTxSendSingle(t *testing.T) {
 		b.blockOnResponse = true
 		frt.resp = &http.Response{
 			StatusCode: 500,
-			Body:       ioutil.NopCloser(errReader{}),
+			Body:       io.NopCloser(errReader{}),
 		}
 		frt.respErr = nil
 		b.batches = nil
@@ -358,7 +357,7 @@ func TestTxSendSingle(t *testing.T) {
 		// attach our own error.
 		frt.resp = &http.Response{
 			StatusCode: 504,
-			Body:       ioutil.NopCloser(bytes.NewReader([]byte{})),
+			Body:       io.NopCloser(bytes.NewReader([]byte{})),
 		}
 		frt.respErr = nil
 		b.batches = nil
@@ -457,7 +456,7 @@ func TestTxSendBatchSingleDataset(t *testing.T) {
 				metrics:               &nullMetrics{},
 				enableMsgpackEncoding: doMsgpack,
 			}
-			frt.resp.Body = ioutil.NopCloser(strings.NewReader(tt.response))
+			frt.resp.Body = io.NopCloser(strings.NewReader(tt.response))
 			for i, data := range tt.in {
 				b.Add(&Event{
 					Data:     data,
@@ -533,13 +532,13 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 				return nil, err
 			}
 
-			f.resp.Body = ioutil.NopCloser(strings.NewReader(reqBody))
+			f.resp.Body = io.NopCloser(strings.NewReader(reqBody))
 			bodyFound = true
 			break
 		}
 	}
 	if !bodyFound {
-		f.resp.Body = ioutil.NopCloser(strings.NewReader(`{"error":"ffrt body not found"}`))
+		f.resp.Body = io.NopCloser(strings.NewReader(`{"error":"ffrt body not found"}`))
 		return f.resp, f.respErr
 	}
 	for respHeader, respBody := range f.respBodies {
@@ -547,13 +546,13 @@ func (f *FancyFakeRoundTripper) RoundTrip(r *http.Request) (*http.Response, erro
 		headerKeys := strings.Split(respHeader, ",")
 		expectedURL, _ := url.Parse(fmt.Sprintf("%s/1/batch/%s", headerKeys[0], headerKeys[2]))
 		if r.Header.Get("X-Honeycomb-Team") == headerKeys[1] && r.URL.String() == expectedURL.String() {
-			f.resp.Body = ioutil.NopCloser(strings.NewReader(respBody))
+			f.resp.Body = io.NopCloser(strings.NewReader(respBody))
 			responseFound = true
 			break
 		}
 	}
 	if !responseFound {
-		f.resp.Body = ioutil.NopCloser(strings.NewReader(`{"error":"ffrt response not found"}`))
+		f.resp.Body = io.NopCloser(strings.NewReader(`{"error":"ffrt response not found"}`))
 	}
 	return f.resp, f.respErr
 }
@@ -701,7 +700,7 @@ func TestRenqueueEventsAfterOverflow(t *testing.T) {
 			} else {
 				frt.resp = &http.Response{
 					StatusCode: statusCode,
-					Body:       ioutil.NopCloser(strings.NewReader(body)),
+					Body:       io.NopCloser(strings.NewReader(body)),
 				}
 			}
 			frt.respErr = err
@@ -725,11 +724,11 @@ type testRoundTripper struct {
 func (t *testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	t.callCount++
 
-	t.body, _ = ioutil.ReadAll(r.Body)
+	t.body, _ = io.ReadAll(r.Body)
 
 	return &http.Response{
 		StatusCode: 200,
-		Body:       ioutil.NopCloser(strings.NewReader(`[{"status":202}]`)),
+		Body:       io.NopCloser(strings.NewReader(`[{"status":202}]`)),
 	}, nil
 }
 
@@ -1162,14 +1161,14 @@ func TestBuildReqReaderCompress(t *testing.T) {
 	// Ensure that if compress is false, we get expected values
 	reader, compressed := buildReqReader([]byte(`{"hello": "world"}`), false)
 	testEquals(t, compressed, false)
-	readBuffer, err := ioutil.ReadAll(reader)
+	readBuffer, err := io.ReadAll(reader)
 	testOK(t, err)
 	testEquals(t, readBuffer, payload)
 
 	// Ensure that if compress is true, we get compressed values
 	reader, compressed = buildReqReader([]byte(`{"hello": "world"}`), true)
 	testEquals(t, compressed, true)
-	readBuffer, err = ioutil.ReadAll(reader)
+	readBuffer, err = io.ReadAll(reader)
 	testOK(t, err)
 
 	decompressed, err := zstd.Decompress(nil, readBuffer)
@@ -1206,7 +1205,7 @@ func TestMsgpackArrayEncoding(t *testing.T) {
 	for _, evCount := range []int{5, 25000, 100000} {
 		frt.resp = &http.Response{
 			StatusCode: http.StatusInternalServerError,
-			Body:       ioutil.NopCloser(errReader{}),
+			Body:       io.NopCloser(errReader{}),
 		}
 		b.batches = nil
 
@@ -1247,11 +1246,11 @@ func TestCompressionRatio(t *testing.T) {
 	testOK(t, err)
 
 	z, _ := buildReqReader(payload, true)
-	zData, err := ioutil.ReadAll(z)
+	zData, err := io.ReadAll(z)
 	testOK(t, err)
 
 	g, _ := buildGzipReader(payload, true)
-	gData, err := ioutil.ReadAll(g)
+	gData, err := io.ReadAll(g)
 	testOK(t, err)
 
 	t.Logf(
@@ -1265,11 +1264,11 @@ func TestCompressionRatio(t *testing.T) {
 	testOK(t, err)
 
 	z, _ = buildReqReader(payload, true)
-	zData, err = ioutil.ReadAll(z)
+	zData, err = io.ReadAll(z)
 	testOK(t, err)
 
 	g, _ = buildGzipReader(payload, true)
-	gData, err = ioutil.ReadAll(g)
+	gData, err = io.ReadAll(g)
 	testOK(t, err)
 
 	t.Logf(
@@ -1334,11 +1333,11 @@ type unauthorizedRoundTripper struct {
 func (t *unauthorizedRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	t.callCount++
 
-	ioutil.ReadAll(r.Body)
+	io.ReadAll(r.Body)
 
 	return &http.Response{
 		StatusCode: 401,
-		Body:       ioutil.NopCloser(strings.NewReader(`[{"error":"unknown API key - check your credentials"}]`)),
+		Body:       io.NopCloser(strings.NewReader(`[{"error":"unknown API key - check your credentials"}]`)),
 	}, nil
 }
 
