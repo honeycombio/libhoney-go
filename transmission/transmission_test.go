@@ -879,7 +879,7 @@ func TestFireBatchWithBrokenFirstEvent(t *testing.T) {
 		b.testBlocker.Wait()
 		resp := testGetResponse(t, b.responses)
 		testEquals(t, resp.Metadata, "meta 0")
-		testEquals(t, resp.Err.Error(), "event exceeds max event size of 100000 bytes, API will not accept this event.")
+		testEquals(t, resp.Err.Error(), "event exceeds max event size of 1000000 bytes, API will not accept this event.")
 		resp = testGetResponse(t, b.responses)
 		testEquals(t, resp.Metadata, "meta 1")
 		testEquals(t, resp.StatusCode, 202)
