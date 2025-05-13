@@ -1429,3 +1429,86 @@ func TestBuildRequestPath(t *testing.T) {
 		assert.Equal(t, "http://fakeHost:8080"+tc.expectedPath, url)
 	}
 }
+
+type retryAfterRoundTripper struct {
+	calls     int
+	startTime time.Time
+	delay     time.Duration
+}
+
+// Always returns 429 with Retry-After on first call, 200 on second
+func (rt *retryAfterRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	rt.calls++
+	if rt.calls == 1 {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": {"2"}},
+			Body:       io.NopCloser(strings.NewReader("429")),
+		}, nil
+	}
+	rt.delay = time.Since(rt.startTime)
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(`[{"status":202}]`)),
+	}, nil
+}
+
+type noRetryAfterRoundTripper struct {
+	calls     int
+	startTime time.Time
+	delay     time.Duration
+}
+
+func (rt *noRetryAfterRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	rt.calls++
+	if rt.calls == 1 {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader("429")),
+		}, nil
+	}
+	rt.delay = time.Since(rt.startTime)
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(`[{"status":202}]`)),
+	}, nil
+}
+
+func TestFireBatchRetryAfter(t *testing.T) {
+	// Simulate a 429 with Retry-After, then a 200
+	b := &batchAgg{
+		httpClient: &http.Client{Transport: &retryAfterRoundTripper{startTime: time.Now()}},
+		responses:  make(chan Response, 1),
+		metrics:    &nullMetrics{},
+	}
+	b.Add(&Event{APIHost: "h", APIKey: "k", Dataset: "d", Metadata: "meta"})
+	start := time.Now()
+	b.Fire(&testNotifier{})
+	resp := testGetResponse(t, b.responses)
+	if resp.StatusCode != 202 {
+		t.Errorf("expected 202 after retry, got %d", resp.StatusCode)
+	}
+	delta := time.Since(start)
+	if delta < 2*time.Second {
+		t.Errorf("expected at least 2s delay, got %v", delta)
+	}
+
+	// Test default 1s sleep if Retry-After is missing
+	b = &batchAgg{
+		httpClient: &http.Client{Transport: &noRetryAfterRoundTripper{startTime: time.Now()}},
+		responses:  make(chan Response, 1),
+		metrics:    &nullMetrics{},
+	}
+	b.Add(&Event{APIHost: "h", APIKey: "k", Dataset: "d", Metadata: "meta2"})
+	start = time.Now()
+	b.Fire(&testNotifier{})
+	resp = testGetResponse(t, b.responses)
+	if resp.StatusCode != 202 {
+		t.Errorf("expected 202 after retry, got %d", resp.StatusCode)
+	}
+	delta = time.Since(start)
+	if delta < time.Second {
+		t.Errorf("expected at least 1s delay, got %v", delta)
+	}
+}

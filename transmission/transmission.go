@@ -448,6 +448,23 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		if reader, ok := reqBody.(*pooledReader); ok {
 			reader.Release()
 		}
+		// Handle 429 or 503 with Retry-After
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+			retryAfter := resp.Header.Get("Retry-After")
+			sleepDur := time.Second // default 1s
+			if retryAfter != "" {
+				if secs, err := time.ParseDuration(retryAfter + "s"); err == nil {
+					sleepDur = secs
+				} else if t, err := http.ParseTime(retryAfter); err == nil {
+					sleepDur = time.Until(t)
+				}
+			}
+			if sleepDur > 0 && sleepDur < 60*time.Second {
+				resp.Body.Close()
+				time.Sleep(sleepDur)
+				continue // retry in the loop
+			}
+		}
 
 		if httpErr, ok := err.(httpError); ok && httpErr.Timeout() {
 			continue
