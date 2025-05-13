@@ -449,7 +449,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 			reader.Release()
 		}
 		// Handle 429 or 503 with Retry-After
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		if resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) {
 			retryAfter := resp.Header.Get("Retry-After")
 			sleepDur := time.Second // default 1s
 			if retryAfter != "" {
