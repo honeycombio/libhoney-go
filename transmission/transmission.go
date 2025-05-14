@@ -492,7 +492,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	b.metrics.Count("messages_sent", numEncoded)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		b.metrics.Increment("send_errors")
 
 		var err error
