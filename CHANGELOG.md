@@ -1,5 +1,11 @@
 # libhoney Changelog
 
+## 1.26.0 2025-08-25
+
+### Enhancements
+
+- feat: Add retry-after for 429 and 503 (#265) | @mterhar
+
 ## 1.25.0 2025-01-09
 
 Honeycomb's backend can now accept events with sizes up to 1 million bytes. This release bumps libhoney to
