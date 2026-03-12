@@ -11,8 +11,6 @@ updates:
       interval: "monthly"
     labels:
       - "type: dependencies"
-    reviewers:
-      - "honeycombio/pipeline-team"
     commit-message:
       prefix: "maint"
       include: "scope"
