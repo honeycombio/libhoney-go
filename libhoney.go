@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -639,20 +640,14 @@ func (f *fieldHolder) AddField(key string, val interface{}) {
 }
 
 // AddFields adds all key/value pairs from the map to the field holder in a
-// single lock acquisition. The underlying map is grown once to accommodate
-// the new entries, avoiding incremental growth.
+// single lock acquisition, avoiding per-field lock overhead.
 func (f *fieldHolder) AddFields(data map[string]interface{}) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.data == nil {
 		f.data = make(marshallableMap, len(data))
 	}
-	// Pre-grow: Go's map implementation will resize at most once if we
-	// write len(data) new keys into a map with sufficient capacity.
-	// There's no maps.Grow yet, so iterate directly.
-	for k, v := range data {
-		f.data[k] = v
-	}
+	maps.Copy(f.data, data)
 }
 
 // Add adds a complex data type to the event or builder on which it's called.
