@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -752,12 +751,14 @@ func TestPresampledSendSamplerate(t *testing.T) {
 	}
 }
 
-// TestSendSamplerate verifies that Send samples
+// TestSendSamplerate verifies that Send samples events when SampleRate > 1.
+// With a sample rate of 2, each event has a 50% chance of being sent.
+// We send 1000 events and verify that the number sent is within a
+// reasonable statistical range (between 400 and 600).
 func TestSendSamplerate(t *testing.T) {
 	resetPackageVars()
 	Init(Config{})
 	testTx := &transmission.MockSender{}
-	rand.Seed(1)
 
 	dc, _ = NewClient(ClientConfig{
 		Transmission: testTx,
@@ -773,11 +774,14 @@ func TestSendSamplerate(t *testing.T) {
 		SampleRate: 2,
 		client:     dc,
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1000; i++ {
 		err := ev.Send()
 		testOK(t, err)
 	}
-	testEquals(t, len(testTx.Events()), 4, "expected testTx num events incorrect")
+	got := len(testTx.Events())
+	if got < 400 || got > 600 {
+		t.Errorf("expected between 400 and 600 events, got %d", got)
+	}
 	for _, ev := range testTx.Events() {
 		testEquals(t, ev.SampleRate, uint(2))
 	}
