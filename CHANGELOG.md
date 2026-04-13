@@ -1,5 +1,18 @@
 # libhoney Changelog
 
+## 1.27.0 2026-04-13
+
+### Enhancements
+
+- feat: add bulk AddFields method to Event and fieldHolder (#275) | @lizthegrey
+
+### Maintenance
+
+- maint: bump minimum Go version to 1.24 (#276) | @lizthegrey
+- maint(deps): bump github.com/klauspost/compress from 1.17.11 to 1.18.5 (#274) | @dependabot
+- maint(deps): bump github.com/stretchr/testify from 1.10.0 to 1.11.1 (#268) | @dependabot
+- ci(OTEL-125): remove pipeline-team dependabot reviewer (#273) | @JamieDanielson
+
 ## 1.26.0 2025-08-25
 
 ### Enhancements
