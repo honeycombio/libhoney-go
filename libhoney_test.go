@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -160,12 +161,12 @@ func TestAddFields(t *testing.T) {
 	// Set one field individually first
 	ev.AddField("existing", "before")
 
-	ev.AddFields(map[string]interface{}{
+	ev.AddFields(maps.All(map[string]interface{}{
 		"strVal":   "bar",
 		"intVal":   5,
 		"floatVal": 3.123,
 		"boolVal":  true,
-	})
+	}))
 	testEquals(t, ev.data["existing"], "before")
 	testEquals(t, ev.data["strVal"], "bar")
 	testEquals(t, ev.data["intVal"], 5)
@@ -185,9 +186,9 @@ func TestAddFieldsAfterSend(t *testing.T) {
 	ev := NewEvent()
 	ev.AddField("before", "send")
 	_ = ev.Send()
-	ev.AddFields(map[string]interface{}{
+	ev.AddFields(maps.All(map[string]interface{}{
 		"after": "send",
-	})
+	}))
 	// After send, AddFields should be a no-op
 	_, ok := ev.data["after"]
 	testEquals(t, ok, false)

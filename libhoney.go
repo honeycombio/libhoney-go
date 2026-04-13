@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
+	"iter"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -635,15 +635,14 @@ func (f *fieldHolder) AddField(key string, val interface{}) {
 	f.data[key] = val
 }
 
-// AddFields adds all key/value pairs from the map to the field holder in a
-// single lock acquisition, avoiding per-field lock overhead.
-func (f *fieldHolder) AddFields(data map[string]interface{}) {
+// AddFields adds all key/value pairs from the iterator to the field holder in
+// a single lock acquisition, avoiding per-field lock overhead.
+func (f *fieldHolder) AddFields(fields iter.Seq2[string, any]) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
-	if f.data == nil {
-		f.data = make(marshallableMap, len(data))
+	for k, v := range fields {
+		f.data[k] = v
 	}
-	maps.Copy(f.data, data)
 }
 
 // Add adds a complex data type to the event or builder on which it's called.
@@ -775,18 +774,18 @@ func (e *Event) AddField(key string, val interface{}) {
 	e.fieldHolder.AddField(key, val)
 }
 
-// AddFields adds all key/value pairs from the map to the event in a single
-// lock acquisition. More efficient than calling AddField in a loop.
+// AddFields adds all key/value pairs from the iterator to the event in a
+// single lock acquisition. More efficient than calling AddField in a loop.
 //
 // Adds to an event that happen after it has been sent will return without
 // having any effect.
-func (e *Event) AddFields(data map[string]interface{}) {
+func (e *Event) AddFields(fields iter.Seq2[string, any]) {
 	e.sendLock.Lock()
 	defer e.sendLock.Unlock()
 	if e.sent {
 		return
 	}
-	e.fieldHolder.AddFields(data)
+	e.fieldHolder.AddFields(fields)
 }
 
 // Add adds a complex data type to the event on which it's called.
