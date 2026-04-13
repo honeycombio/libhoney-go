@@ -27,10 +27,6 @@ import (
 	statsd "gopkg.in/alexcesaro/statsd.v2"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 const (
 	defaultSampleRate     = 1
 	defaultAPIHost        = "https://api.honeycomb.io/"
