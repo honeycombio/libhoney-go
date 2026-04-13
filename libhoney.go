@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -638,6 +639,17 @@ func (f *fieldHolder) AddField(key string, val interface{}) {
 	f.data[key] = val
 }
 
+// AddFields adds all key/value pairs from the map to the field holder in a
+// single lock acquisition, avoiding per-field lock overhead.
+func (f *fieldHolder) AddFields(data map[string]interface{}) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	if f.data == nil {
+		f.data = make(marshallableMap, len(data))
+	}
+	maps.Copy(f.data, data)
+}
+
 // Add adds a complex data type to the event or builder on which it's called.
 // For structs, it adds each exported field. For maps, it adds each key/value.
 // Add will error on all other types.
@@ -765,6 +777,20 @@ func (e *Event) AddField(key string, val interface{}) {
 		return
 	}
 	e.fieldHolder.AddField(key, val)
+}
+
+// AddFields adds all key/value pairs from the map to the event in a single
+// lock acquisition. More efficient than calling AddField in a loop.
+//
+// Adds to an event that happen after it has been sent will return without
+// having any effect.
+func (e *Event) AddFields(data map[string]interface{}) {
+	e.sendLock.Lock()
+	defer e.sendLock.Unlock()
+	if e.sent {
+		return
+	}
+	e.fieldHolder.AddFields(data)
 }
 
 // Add adds a complex data type to the event on which it's called.

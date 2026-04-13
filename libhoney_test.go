@@ -148,6 +148,52 @@ func TestAddField(t *testing.T) {
 	testEquals(t, ev.data["boolVal"], true)
 }
 
+func TestAddFields(t *testing.T) {
+	resetPackageVars()
+	conf := Config{
+		WriteKey:   "aoeu",
+		Dataset:    "oeui",
+		SampleRate: 1,
+		APIHost:    "http://localhost:8081/",
+	}
+	Init(conf)
+	ev := NewEvent()
+	// Set one field individually first
+	ev.AddField("existing", "before")
+
+	ev.AddFields(map[string]interface{}{
+		"strVal":   "bar",
+		"intVal":   5,
+		"floatVal": 3.123,
+		"boolVal":  true,
+	})
+	testEquals(t, ev.data["existing"], "before")
+	testEquals(t, ev.data["strVal"], "bar")
+	testEquals(t, ev.data["intVal"], 5)
+	testEquals(t, ev.data["floatVal"], 3.123)
+	testEquals(t, ev.data["boolVal"], true)
+}
+
+func TestAddFieldsAfterSend(t *testing.T) {
+	resetPackageVars()
+	conf := Config{
+		WriteKey:   "aoeu",
+		Dataset:    "oeui",
+		SampleRate: 1,
+		APIHost:    "http://localhost:8081/",
+	}
+	Init(conf)
+	ev := NewEvent()
+	ev.AddField("before", "send")
+	_ = ev.Send()
+	ev.AddFields(map[string]interface{}{
+		"after": "send",
+	})
+	// After send, AddFields should be a no-op
+	_, ok := ev.data["after"]
+	testEquals(t, ok, false)
+}
+
 type Aich struct {
 	F1 string
 	F2 int
