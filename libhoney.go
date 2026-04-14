@@ -636,24 +636,22 @@ func (f *fieldHolder) AddField(key string, val interface{}) {
 }
 
 // AddFields adds all key/value pairs from the map to the field holder in a
-// single lock acquisition, avoiding per-field lock overhead. When the incoming
-// map is larger, the pointer is swapped to avoid rehashing during growth.
+// single lock acquisition, avoiding per-field lock overhead. When the combined
+// size may exceed the existing map's capacity, a new map is allocated to avoid
+// incremental rehashing during growth.
 func (f *fieldHolder) AddFields(data map[string]interface{}) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.data == nil {
-		f.data = marshallableMap(data)
+		f.data = make(marshallableMap, len(data))
+		maps.Copy(f.data, data)
 		return
 	}
 	if len(data) > len(f.data) {
-		// Iterate the smaller existing map; only copy keys that the
-		// incoming data doesn't already carry (new values win).
-		for k, v := range f.data {
-			if _, ok := data[k]; !ok {
-				data[k] = v
-			}
-		}
-		f.data = marshallableMap(data)
+		merged := make(marshallableMap, len(f.data)+len(data))
+		maps.Copy(merged, f.data)
+		maps.Copy(merged, data)
+		f.data = merged
 	} else {
 		maps.Copy(f.data, data)
 	}
