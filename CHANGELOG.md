@@ -1,5 +1,11 @@
 # libhoney Changelog
 
+## 1.27.1 2026-04-14
+
+### Fixes
+
+- perf: allocate correctly-sized map in AddFields to avoid rehashing and caller map mutation (#279) | @lizthegrey
+
 ## 1.27.0 2026-04-13
 
 ### Enhancements
