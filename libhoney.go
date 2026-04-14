@@ -643,8 +643,7 @@ func (f *fieldHolder) AddFields(data map[string]interface{}) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.data == nil {
-		f.data = make(marshallableMap, len(data))
-		maps.Copy(f.data, data)
+		f.data = maps.Clone(data)
 		return
 	}
 	if len(data) > len(f.data) {
