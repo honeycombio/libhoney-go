@@ -5,7 +5,7 @@ go 1.24
 require (
 	github.com/DataDog/zstd v1.5.7
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.18.6
 	github.com/stretchr/testify v1.11.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0
