@@ -83,6 +83,7 @@ func (client *markerClient) CreateMarker(dataset, message, markerType string) (s
 	return "", errors.New(fmt.Sprintf("Undescribed response from server with status code %d", resp.StatusCode))
 }
 
+// DeleteMarker deletes a marker by marker ID (for example, the markerID returned with client.CreateMarker). See https://docs.honeycomb.io/api/markers/delete-a-marker
 func (client *markerClient) DeleteMarker(dataset, markerID string) error {
 	path, err := client.buildRequestURL(dataset)
 	if err != nil {
