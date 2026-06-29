@@ -10,22 +10,42 @@ import (
 const SecretENVVar = "API_SECRET_KEY"
 
 func TestCreateMarker(t *testing.T) {
-	apiKey := "ZiPnAPIuv2mOa33V4fsccA"
+	apiKey := os.Getenv(SecretENVVar)
 	client := NewClient(apiKey, USHost)
-	err := client.CreateMarker("MyCodeExerciseDataset", "my message", "deploy")
+	id, err := client.CreateMarker("MyCodeExerciseDataset", "my message", "deploy")
 	require.NoError(t, err)
+	require.NotEmpty(t, id)
 }
 
 func TestCreateMarker_InvalidDataset(t *testing.T) {
 	apiKey := os.Getenv(SecretENVVar)
 	client := NewClient(apiKey, USHost)
-	err := client.CreateMarker("InvalidDataset", "my message", "test")
+	id, err := client.CreateMarker("InvalidDataset", "my message", "test")
 	require.Error(t, err)
+	require.Empty(t, id)
 }
 
 func TestCreateMarker_InvalidAPIKey(t *testing.T) {
 	client := NewClient("InvalidAPIKey", USHost)
-	err := client.CreateMarker("MyCodeExerciseDataset", "my message", "test")
+	id, err := client.CreateMarker("MyCodeExerciseDataset", "my message", "test")
+	require.Error(t, err)
+	require.Empty(t, id)
+}
+
+func TestDeleteMarker(t *testing.T) {
+	apiKey := os.Getenv(SecretENVVar)
+	client := NewClient(apiKey, USHost)
+	id, err := client.CreateMarker("MyCodeExerciseDataset", "my message", "deploy")
+	require.NoError(t, err)
+
+	err = client.DeleteMarker("MyCodeExerciseDataset", id)
+	require.NoError(t, err)
+}
+
+func TestDeleteMarker_InvalidID(t *testing.T) {
+	apiKey := os.Getenv(SecretENVVar)
+	client := NewClient(apiKey, USHost)
+	err := client.DeleteMarker("MyCodeExerciseDataset", "InvalidID")
 	require.Error(t, err)
 }
 

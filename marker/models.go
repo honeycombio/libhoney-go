@@ -17,6 +17,11 @@ type createMarkerRequest struct {
 	// URL       string `json:"url"`
 }
 
+type createMarkerSuccessResponse struct {
+	// Some request fields are not implemented here. See https://docs.honeycomb.io/api/markers/create-a-marker
+	ID string `json:"id"`
+}
+
 type createMarkerErrorResponse struct {
 	Error string `json:"error"`
 }
