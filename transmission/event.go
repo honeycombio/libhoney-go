@@ -2,10 +2,7 @@ package transmission
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"reflect"
-	"sort"
 	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
@@ -36,22 +33,7 @@ type Event struct {
 // that aren't specific to this particular event, and allows for behavior like
 // omitempty'ing a zero'ed out time.Time.
 func (e *Event) MarshalJSON() ([]byte, error) {
-	tPointer := &(e.Timestamp)
-	if e.Timestamp.IsZero() {
-		tPointer = nil
-	}
-
-	// don't include sample rate if it's 1; this is the default
-	sampleRate := e.SampleRate
-	if sampleRate == 1 {
-		sampleRate = 0
-	}
-
-	return json.Marshal(struct {
-		Data       marshallableMap `json:"data"`
-		SampleRate uint            `json:"samplerate,omitempty"`
-		Timestamp  *time.Time      `json:"time,omitempty"`
-	}{e.Data, sampleRate, tPointer})
+	return e.appendJSON(nil)
 }
 
 func (e *Event) MarshalMsgpack() (byts []byte, err error) {
@@ -82,59 +64,4 @@ func (e *Event) MarshalMsgpack() (byts []byte, err error) {
 		Timestamp  *time.Time             `msgpack:"time,omitempty"`
 	}{e.Data, sampleRate, tPointer})
 	return buf.Bytes(), err
-}
-
-type marshallableMap map[string]interface{}
-
-func (m marshallableMap) MarshalJSON() ([]byte, error) {
-	keys := make([]string, len(m))
-	i := 0
-	for k := range m {
-		keys[i] = k
-		i++
-	}
-	sort.Strings(keys)
-	out := bytes.NewBufferString("{")
-
-	first := true
-	for _, k := range keys {
-		b, ok := maybeMarshalValue(m[k])
-		if ok {
-			if first {
-				first = false
-			} else {
-				out.WriteByte(',')
-			}
-
-			out.WriteByte('"')
-			out.Write([]byte(k))
-			out.WriteByte('"')
-			out.WriteByte(':')
-			out.Write(b)
-		}
-	}
-	out.WriteByte('}')
-	return out.Bytes(), nil
-}
-
-var (
-	ptrKinds = []reflect.Kind{reflect.Ptr, reflect.Slice, reflect.Map}
-)
-
-func maybeMarshalValue(v interface{}) ([]byte, bool) {
-	if v == nil {
-		return nil, false
-	}
-	val := reflect.ValueOf(v)
-	kind := val.Type().Kind()
-	for _, ptrKind := range ptrKinds {
-		if kind == ptrKind && val.IsNil() {
-			return nil, false
-		}
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, false
-	}
-	return b, true
 }

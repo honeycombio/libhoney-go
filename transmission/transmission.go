@@ -586,9 +586,12 @@ func (b *batchAgg) encodeBatchJSON(events []*Event) ([]byte, int) {
 	buf := bytes.Buffer{}
 	buf.WriteByte('[')
 	bytesTotal := 1
+	// reused across events, as each is copied into buf
+	var scratch []byte
 	// ok, we've got our array, let's populate it with JSON events
 	for i, ev := range events {
-		evByt, err := json.Marshal(ev)
+		evByt, err := ev.appendJSON(scratch[:0])
+		scratch = evByt
 		// check all our errors first in case we need to skip batching this event
 		if err != nil {
 			b.enqueueResponse(Response{
