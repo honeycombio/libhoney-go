@@ -2,6 +2,7 @@ package transmission
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -116,6 +117,10 @@ func appendFast(b []byte, v any) ([]byte, bool) {
 		return strconv.AppendUint(b, x, 10), true
 	case time.Duration:
 		return strconv.AppendInt(b, int64(x), 10), true
+	case float64:
+		return appendFloat(b, x, 64)
+	case float32:
+		return appendFloat(b, float64(x), 32)
 	case []string:
 		if x == nil {
 			return b, false
@@ -156,6 +161,15 @@ func appendSlice(b []byte, s []any) ([]byte, bool) {
 		}
 	}
 	return append(b, ']'), true
+}
+
+// appendFloat omits NaN and infinities, which JSON can't represent, as
+// encoding/json does.
+func appendFloat(b []byte, f float64, bits int) ([]byte, bool) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return b, false
+	}
+	return strconv.AppendFloat(b, f, 'g', -1, bits), true
 }
 
 // appendString skips encoding/json's HTML escaping, as events aren't embedded
