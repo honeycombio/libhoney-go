@@ -120,8 +120,10 @@ func BenchmarkEncodeBatchJSON(b *testing.B) {
 	b.Run("encodeBatchJSON", func(b *testing.B) {
 		b.ReportAllocs()
 		agg := &batchAgg{}
+		var buf bytes.Buffer
 		for b.Loop() {
-			agg.encodeBatchJSON(events)
+			buf.Reset()
+			agg.encodeBatchJSON(events, &buf)
 		}
 	})
 }
