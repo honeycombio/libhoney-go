@@ -91,8 +91,9 @@ func BenchmarkEventJSON(b *testing.B) {
 	b.Run("appendJSON", func(b *testing.B) {
 		b.ReportAllocs()
 		var buf []byte
+		var keys []string
 		for b.Loop() {
-			buf, _ = ev.appendJSON(buf[:0])
+			buf, _ = ev.appendJSON(buf[:0], &keys)
 		}
 	})
 }

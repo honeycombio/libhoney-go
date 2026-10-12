@@ -597,9 +597,10 @@ func (b *batchAgg) encodeBatchJSON(events []*Event, buf *bytes.Buffer) ([]byte, 
 	bytesTotal := 1
 	// reused across events, as each is copied into buf
 	var scratch []byte
+	var keys []string
 	// ok, we've got our array, let's populate it with JSON events
 	for i, ev := range events {
-		evByt, err := ev.appendJSON(scratch[:0])
+		evByt, err := ev.appendJSON(scratch[:0], &keys)
 		scratch = evByt
 		// check all our errors first in case we need to skip batching this event
 		if err != nil {

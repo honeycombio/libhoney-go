@@ -33,7 +33,8 @@ type Event struct {
 // that aren't specific to this particular event, and allows for behavior like
 // omitempty'ing a zero'ed out time.Time.
 func (e *Event) MarshalJSON() ([]byte, error) {
-	return e.appendJSON(nil)
+	var keys []string
+	return e.appendJSON(nil, &keys)
 }
 
 func (e *Event) MarshalMsgpack() (byts []byte, err error) {

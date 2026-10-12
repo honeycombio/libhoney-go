@@ -13,9 +13,9 @@ import (
 // encoding/json's output, but handles the common field types directly: going
 // through json.Marshal costs reflection per field and re-validates the output
 // of every MarshalJSON method it calls, which dominates batch encoding time.
-func (e *Event) appendJSON(b []byte) ([]byte, error) {
+func (e *Event) appendJSON(b []byte, keys *[]string) ([]byte, error) {
 	b = append(b, `{"data":`...)
-	b = appendData(b, e.Data)
+	b = appendData(b, e.Data, keys)
 	// don't include sample rate if it's 1; this is the default
 	if e.SampleRate > 1 {
 		b = append(b, `,"samplerate":`...)
@@ -33,17 +33,18 @@ func (e *Event) appendJSON(b []byte) ([]byte, error) {
 }
 
 // appendData writes fields in sorted key order, omitting any that are nil or
-// can't be marshalled rather than failing the whole event.
-func appendData(b []byte, data map[string]any) []byte {
-	keys := make([]string, 0, len(data))
+// can't be marshalled rather than failing the whole event. keys is reused
+// across events for sorting.
+func appendData(b []byte, data map[string]any, keys *[]string) []byte {
+	*keys = (*keys)[:0]
 	for k := range data {
-		keys = append(keys, k)
+		*keys = append(*keys, k)
 	}
-	slices.Sort(keys)
+	slices.Sort(*keys)
 
 	b = append(b, '{')
 	first := true
-	for _, k := range keys {
+	for _, k := range *keys {
 		start := len(b)
 		if !first {
 			b = append(b, ',')
