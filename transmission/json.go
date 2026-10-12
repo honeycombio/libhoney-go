@@ -22,12 +22,13 @@ func (e *Event) appendJSON(b []byte, keys *[]string) ([]byte, error) {
 		b = strconv.AppendUint(b, uint64(e.SampleRate), 10)
 	}
 	if !e.Timestamp.IsZero() {
-		t, err := e.Timestamp.MarshalJSON()
-		if err != nil {
+		var err error
+		b = append(b, `,"time":"`...)
+		// errors as Time.MarshalJSON would, for times RFC 3339 can't represent
+		if b, err = e.Timestamp.AppendText(b); err != nil {
 			return nil, err
 		}
-		b = append(b, `,"time":`...)
-		b = append(b, t...)
+		b = append(b, '"')
 	}
 	return append(b, '}'), nil
 }
