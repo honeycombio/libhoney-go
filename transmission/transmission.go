@@ -517,7 +517,7 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		}
 		// log if write key was rejected because of invalid Write / API key
 		if resp.StatusCode == http.StatusUnauthorized {
-			b.logger.Printf("APIKey '%s' was rejected. Please verify APIKey is correct.", writeKey)
+			b.logger.Printf("APIKey '%s' was rejected. Please verify APIKey is correct.", maskWriteKey(writeKey))
 		}
 		for _, ev := range events {
 			err := fmt.Errorf(
@@ -774,4 +774,16 @@ func getExceedsMaxEventSizeExtraInfo(ev *Event) string {
 		extraInfo = fmt.Sprintf("%s Service Name: \"%v\"", extraInfo, evServiceName)
 	}
 	return extraInfo
+}
+
+// maskWriteKey returns a write key with all but its last four characters
+// replaced, so it can be named in a log line without exposing a usable
+// credential. Keys of four characters or fewer are masked in full, since
+// showing the last four of a short key would leave it intact.
+func maskWriteKey(writeKey string) string {
+	const unmasked = 4
+	if len(writeKey) <= unmasked {
+		return strings.Repeat("X", len(writeKey))
+	}
+	return strings.Repeat("X", len(writeKey)-unmasked) + writeKey[len(writeKey)-unmasked:]
 }

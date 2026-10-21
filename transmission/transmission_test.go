@@ -1384,7 +1384,7 @@ func TestFireBatchWithUnauthorizedResponse(t *testing.T) {
 		testEquals(t, len(b.overflowBatches[key]), 0)
 		testEquals(t, trt.callCount, 1)
 		testEquals(t, len(l.logs), 1)
-		testEquals(t, l.logs[0], "APIKey 'written' was rejected. Please verify APIKey is correct.")
+		testEquals(t, l.logs[0], "APIKey 'XXXtten' was rejected. Please verify APIKey is correct.")
 	})
 }
 
@@ -1510,5 +1510,42 @@ func TestFireBatchRetryAfter(t *testing.T) {
 	delta = time.Since(start)
 	if delta < time.Second {
 		t.Errorf("expected at least 1s delay, got %v", delta)
+	}
+}
+
+func TestMaskWriteKey(t *testing.T) {
+	testCases := []struct {
+		name     string
+		writeKey string
+		expected string
+	}{
+		{"empty", "", ""},
+		{"shorter than the unmasked tail", "abc", "XXX"},
+		{"exactly the unmasked tail", "abcd", "XXXX"},
+		{"one longer than the tail", "abcde", "Xbcde"},
+		{"typical key length", "0123456789abcdef01234567", "XXXXXXXXXXXXXXXXXXXX4567"},
+		{"classic key length", strings.Repeat("a", 32), strings.Repeat("X", 28) + "aaaa"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := maskWriteKey(tc.writeKey)
+			testEquals(t, got, tc.expected)
+			testEquals(t, len(got), len(tc.writeKey))
+		})
+	}
+}
+
+func TestMaskWriteKeyLeaksNothingUsable(t *testing.T) {
+	// The point of the mask is that the output can go in a log line without
+	// handing a reader a working credential, so assert the key is not a
+	// substring of its own mask for anything longer than the tail.
+	writeKey := "0123456789abcdef01234567"
+	masked := maskWriteKey(writeKey)
+	if strings.Contains(masked, writeKey) {
+		t.Errorf("masked key %q still contains the full write key", masked)
+	}
+	if !strings.HasSuffix(masked, "4567") {
+		t.Errorf("masked key %q should keep the last four characters for identification", masked)
 	}
 }
