@@ -1,6 +1,6 @@
 module github.com/honeycombio/libhoney-go/examples/webapp
 
-go 1.17
+go 1.24
 
 require (
 	github.com/go-ozzo/ozzo-validation v3.6.0+incompatible
@@ -18,7 +18,7 @@ require (
 	github.com/facebookgo/limitgroup v0.0.0-20150612190941-6abd8d71ec01 // indirect
 	github.com/facebookgo/muster v0.0.0-20150708232844-fd3d7953fd52 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
-	github.com/klauspost/compress v1.13.6 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0 // indirect
