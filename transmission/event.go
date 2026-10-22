@@ -76,6 +76,9 @@ func (e *Event) MarshalMsgpack() (byts []byte, err error) {
 	var buf bytes.Buffer
 	encoder := msgpack.NewEncoder(&buf)
 	encoder.SetCustomStructTag("json")
+	// Go randomizes map iteration order, so without sorting every event in a
+	// batch lays out the same keys differently and zstd finds little to match.
+	encoder.SetSortMapKeys(true)
 	err = encoder.Encode(struct {
 		Data       map[string]interface{} `msgpack:"data"`
 		SampleRate uint                   `msgpack:"samplerate,omitempty"`
