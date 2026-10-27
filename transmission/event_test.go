@@ -3,6 +3,8 @@ package transmission
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -60,6 +62,42 @@ func TestEventMarshal(t *testing.T) {
 			},
 		},
 	})
+}
+
+func TestEventMarshalMsgpackSortsKeys(t *testing.T) {
+	e := &Event{Data: map[string]interface{}{}}
+	for i := 0; i < 50; i++ {
+		e.Data[fmt.Sprintf("field.%02d", i)] = i
+		e.Data[fmt.Sprintf("global.%02d", i)] = fmt.Sprintf("value-%d", i)
+	}
+	e.Data["nested"] = map[string]interface{}{"z": 1, "y": 2, "x": 3}
+
+	first, err := e.MarshalMsgpack()
+	testOK(t, err)
+	for i := 0; i < 20; i++ {
+		again, err := e.MarshalMsgpack()
+		testOK(t, err)
+		testEquals(t, again, first)
+	}
+
+	dec := msgpack.NewDecoder(bytes.NewReader(first))
+	n, err := dec.DecodeMapLen()
+	testOK(t, err)
+	testEquals(t, n, 1)
+	key, err := dec.DecodeString()
+	testOK(t, err)
+	testEquals(t, key, "data")
+	n, err = dec.DecodeMapLen()
+	testOK(t, err)
+	testEquals(t, n, len(e.Data))
+	var keys []string
+	for i := 0; i < n; i++ {
+		k, err := dec.DecodeString()
+		testOK(t, err)
+		keys = append(keys, k)
+		testOK(t, dec.Skip())
+	}
+	testEquals(t, sort.StringsAreSorted(keys), true)
 }
 
 func BenchmarkEventEncode(b *testing.B) {
