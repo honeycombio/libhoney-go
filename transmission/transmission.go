@@ -378,7 +378,17 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		encEvs, numEncoded = b.encodeBatchMsgp(events)
 	} else {
 		contentType = "application/json"
-		encEvs, numEncoded = b.encodeBatchJSON(events)
+		var buf *bytes.Buffer
+		if b.disableCompression {
+			// uncompressed, the buffer is the request body, which the HTTP
+			// client may still be reading after the request returns
+			buf = new(bytes.Buffer)
+		} else {
+			buf = batchBufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			defer batchBufferPool.Put(buf)
+		}
+		encEvs, numEncoded = b.encodeBatchJSON(events, buf)
 	}
 	// if we failed to encode any events skip this batch
 	if numEncoded == 0 {
@@ -578,17 +588,20 @@ func (b *batchAgg) fireBatch(events []*Event) {
 
 // create the JSON for this event list manually so that we can send
 // responses down the response queue for any that fail to marshal
-func (b *batchAgg) encodeBatchJSON(events []*Event) ([]byte, int) {
+func (b *batchAgg) encodeBatchJSON(events []*Event, buf *bytes.Buffer) ([]byte, int) {
 	// track first vs. rest events for commas
 	first := true
 	// track how many we successfully encode for later bookkeeping
 	var numEncoded int
-	buf := bytes.Buffer{}
 	buf.WriteByte('[')
 	bytesTotal := 1
+	// reused across events, as each is copied into buf
+	var scratch []byte
+	var keys []string
 	// ok, we've got our array, let's populate it with JSON events
 	for i, ev := range events {
-		evByt, err := json.Marshal(ev)
+		evByt, err := ev.appendJSON(scratch[:0], &keys)
+		scratch = evByt
 		// check all our errors first in case we need to skip batching this event
 		if err != nil {
 			b.enqueueResponse(Response{
@@ -703,6 +716,10 @@ func (b *batchAgg) enqueueErrResponses(err error, events []*Event, duration time
 }
 
 var zstdBufferPool sync.Pool
+
+// batchBufferPool recycles JSON batch buffers, which would otherwise be
+// regrown from empty for every batch.
+var batchBufferPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
 type pooledReader struct {
 	bytes.Reader
