@@ -164,7 +164,7 @@ func TestAddSendRaces(t *testing.T) {
 	// fmt.Printf("after, event data is %v", ev.data)
 }
 
-// Expected to error, but not panic.
+// A zero value Client{} drops events without erroring or panicking.
 func TestDefaultClient(t *testing.T) {
 	t.Parallel()
 
@@ -172,13 +172,13 @@ func TestDefaultClient(t *testing.T) {
 	e := c.NewEvent()
 	e.AddField("foo", "bar")
 	err := e.Send()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 
 	b := c.NewBuilder()
 	e = b.NewEvent()
 	e.AddField("foo", "bar")
 	err = e.Send()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestEnsureLoggerRaces(t *testing.T) {

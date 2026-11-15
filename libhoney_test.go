@@ -721,6 +721,20 @@ func TestSendPresampledErrors(t *testing.T) {
 	}
 }
 
+// TestZeroValueClientSendsWithoutDataset verifies that a manually created
+// Client{}, which discards everything, does not return an error for a missing
+// dataset.
+func TestZeroValueClientSendsWithoutDataset(t *testing.T) {
+	c := &Client{}
+	ev := c.NewEvent()
+	ev.AddField("a", 1)
+	testOK(t, ev.Send())
+
+	ev = c.NewEvent()
+	ev.AddField("a", 1)
+	testOK(t, ev.SendPresampled())
+}
+
 // TestPresampledSendSamplerate verifies that SendPresampled does no sampling
 func TestPresampledSendSamplerate(t *testing.T) {
 	resetPackageVars()
