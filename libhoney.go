@@ -904,6 +904,7 @@ func (e *Event) SendPresampled() (err error) {
 	senderType := reflect.TypeOf(e.client.transmission).String()
 	isHoneycombSender := strings.HasSuffix(senderType, "transmission.Honeycomb")
 	isMockSender := strings.HasSuffix(senderType, "transmission.MockSender")
+	isDiscardSender := strings.HasSuffix(senderType, "transmission.DiscardSender")
 	if isHoneycombSender || isMockSender {
 		if e.APIHost == "" {
 			return errors.New("No APIHost for Honeycomb. Can't send to the Great Unknown.")
@@ -912,7 +913,9 @@ func (e *Event) SendPresampled() (err error) {
 			return errors.New("No WriteKey specified. Can't send event.")
 		}
 	}
-	if e.Dataset == "" {
+	// A zero value Client{} drops everything on a DiscardSender, so there is
+	// no dataset to require.
+	if e.Dataset == "" && !isDiscardSender {
 		return errors.New("No Dataset for Honeycomb. Can't send datasetless.")
 	}
 
