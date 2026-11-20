@@ -420,8 +420,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 	}
 
 	// One retry allowed for connection timeouts.
+	const maxTries = 2
 	var resp *http.Response
-	for try := 0; try < 2; try++ {
+	for try := 0; try < maxTries; try++ {
 		if try > 0 {
 			b.metrics.Increment("send_retries")
 		}
@@ -448,8 +449,9 @@ func (b *batchAgg) fireBatch(events []*Event) {
 		if reader, ok := reqBody.(*pooledReader); ok {
 			reader.Release()
 		}
-		// Handle 429 or 503 with Retry-After
-		if resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) {
+		// Handle 429 or 503 with Retry-After. On the last try the response is
+		// reported as it is, so its body must stay open and nobody sleeps.
+		if resp != nil && try < maxTries-1 && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) {
 			retryAfter := resp.Header.Get("Retry-After")
 			sleepDur := time.Second // default 1s
 			if retryAfter != "" {

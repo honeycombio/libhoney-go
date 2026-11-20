@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strings"
@@ -1547,5 +1548,36 @@ func TestMaskWriteKeyLeaksNothingUsable(t *testing.T) {
 	}
 	if !strings.HasSuffix(masked, "4567") {
 		t.Errorf("masked key %q should keep the last four characters for identification", masked)
+	}
+}
+
+func TestFireBatchStillRateLimitedAfterRetry(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":"rate limited"}`))
+	}))
+	defer srv.Close()
+
+	b := &batchAgg{
+		httpClient: srv.Client(),
+		responses:  make(chan Response, 1),
+		metrics:    &nullMetrics{},
+		logger:     &nullLogger{},
+	}
+	b.Add(&Event{APIHost: srv.URL, APIKey: "k", Dataset: "d", Metadata: "meta"})
+	start := time.Now()
+	b.Fire(&testNotifier{})
+	resp := testGetResponse(t, b.responses)
+
+	testEquals(t, int(calls.Load()), 2)
+	testEquals(t, resp.StatusCode, http.StatusTooManyRequests)
+	testEquals(t, string(resp.Body), `{"error":"rate limited"}`)
+	testEquals(t, resp.Err.Error(), "got unexpected HTTP status 429: Too Many Requests")
+	// Only the sleep between the two attempts is needed.
+	if delta := time.Since(start); delta >= 2*time.Second {
+		t.Errorf("slept after the final attempt, took %v", delta)
 	}
 }
